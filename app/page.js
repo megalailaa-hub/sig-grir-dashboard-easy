@@ -1,0 +1,36 @@
+'use client';
+import {useEffect,useMemo,useState} from 'react';
+import * as XLSX from 'xlsx';
+import {Upload, Database, CalendarDays, Trash2, FileSpreadsheet, ChevronDown} from 'lucide-react';
+
+const fmt=n=>new Intl.NumberFormat('id-ID',{maximumFractionDigits:0}).format(Math.abs(Number(n)||0));
+const money=n=>{const v=Math.abs(Number(n)||0); if(v>=1e9)return 'Rp '+(v/1e9).toFixed(1)+' M'; if(v>=1e6)return 'Rp '+(v/1e6).toFixed(1)+' M'; if(v>=1e3)return 'Rp '+(v/1e3).toFixed(0)+' K'; return 'Rp '+fmt(v)};
+const clean=v=>v==null?'':String(v).trim();
+function normalize(r){
+ return {company:clean(r['Company Code']),account:clean(r['Account']),doc:clean(r['Document Number']),posting:clean(r['Posting Date']),amount:Number(r['Amount in local currency'])||0,amountPlus:Number(r['Amount +'])||0,vendor:clean(r['Nama Vendor']),category:clean(r['Kategori']),due:clean(r['Jatuh Tempo']),aging:clean(r['Umur Hutang']),status:clean(r['Status Grouping']),action:clean(r['Action']),remark:clean(r['Remark']),po:clean(r['Purchasing Document'])};
+}
+function summarize(rows,key){const m={}; rows.forEach(r=>{const k=r[key]||'Lainnya';m[k]=(m[k]||0)+Math.abs(r.amount)});return Object.entries(m).sort((a,b)=>b[1]-a[1]);}
+export default function Page(){
+ const [rows,setRows]=useState([]),[period,setPeriod]=useState(''),[snapshots,setSnapshots]=useState([]),[active,setActive]=useState(''),[loading,setLoading]=useState(false),[msg,setMsg]=useState('');
+ useEffect(()=>{try{const s=JSON.parse(localStorage.getItem('sig_grir_snapshots')||'[]');setSnapshots(s);if(s[0]){setActive(s[0].id);setPeriod(s[0].period);setRows(s[0].rows)}}catch{}} ,[]);
+ const total=useMemo(()=>rows.reduce((a,r)=>a+Math.abs(r.amount),0),[rows]);
+ const cats=useMemo(()=>summarize(rows,'category'),[rows]); const vendors=useMemo(()=>summarize(rows,'vendor').slice(0,10),[rows]); const agings=useMemo(()=>summarize(rows,'aging'),[rows]);
+ const due=useMemo(()=>summarize(rows,'due'),[rows]); const companies=useMemo(()=>summarize(rows,'company').slice(0,8),[rows]);
+ function saveSnapshot(nextRows,p){const id=p+'-'+Date.now(); const item={id,period:p,rows:nextRows,savedAt:new Date().toISOString()}; const next=[item,...snapshots.filter(x=>x.period!==p)].slice(0,24); setSnapshots(next);setActive(id);localStorage.setItem('sig_grir_snapshots',JSON.stringify(next));}
+ async function onFile(e){const f=e.target.files?.[0];if(!f)return;setLoading(true);setMsg('Membaca Excel...');try{const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const ws=wb.Sheets['Data Source']||wb.Sheets[wb.SheetNames[1]];const raw=XLSX.utils.sheet_to_json(ws,{defval:''});const nr=raw.map(normalize);const inferred=(f.name.match(/(\d{2})[._-]?(\d{2})/)||[]);const p=inferred[1]&&inferred[2]?`${inferred[2]}.20${inferred[1]}`:new Date().toLocaleDateString('id-ID',{month:'2-digit',year:'numeric'});setRows(nr);setPeriod(p);saveSnapshot(nr,p);setMsg(`${fmt(nr.length)} baris berhasil disimpan sebagai periode ${p}.`)}catch(err){setMsg('Excel tidak bisa dibaca. Pastikan ada sheet Data Source.')}finally{setLoading(false)}}
+ function choose(s){setActive(s.id);setPeriod(s.period);setRows(s.rows);setMsg(`Menampilkan snapshot ${s.period}.`)}
+ function remove(s){const next=snapshots.filter(x=>x.id!==s.id);setSnapshots(next);localStorage.setItem('sig_grir_snapshots',JSON.stringify(next));if(active===s.id){const x=next[0];if(x){choose(x)}else{setRows([]);setPeriod('');setActive('')}}}
+ return <main><header><div><div className="eyebrow">SIG • FINANCE CONTROL</div><h1>GRIR Monitoring</h1><p>Dashboard sederhana untuk monitoring outstanding, aging, vendor, dan status.</p></div><label className="upload"><Upload size={18}/>{loading?'MEMPROSES...':'UPLOAD EXCEL'}<input type="file" accept=".xlsx,.xls" onChange={onFile}/></label></header>
+ <section className="toolbar"><div className="period"><CalendarDays size={18}/><span>PERIODE</span><strong>{period||'Belum ada data'}</strong></div><div className="history"><Database size={18}/><select value={active} onChange={e=>{const s=snapshots.find(x=>x.id===e.target.value);if(s)choose(s)}}><option value="">Pilih snapshot tersimpan</option>{snapshots.map(s=><option key={s.id} value={s.id}>{s.period} • {s.rows.length.toLocaleString('id-ID')} rows</option>)}</select><ChevronDown size={16}/></div></section>
+ {msg&&<div className="message">{msg}</div>}
+ {!rows.length?<section className="empty"><FileSpreadsheet size={52}/><h2>Belum ada data</h2><p>Upload file <b>GRIR 08.26_Cek.xlsx</b> atau file periode berikutnya. Data akan disimpan di browser ini sehingga Anda bisa kembali memilih periode sebelumnya.</p><label className="primary">Pilih File Excel<input type="file" accept=".xlsx,.xls" onChange={onFile}/></label></section>:<>
+ <section className="cards"><Card title="TOTAL GRIR" value={money(total)} sub={`${rows.length.toLocaleString('id-ID')} transaksi`}/><Card title="DUE" value={money(due.find(x=>x[0]==='Jatuh Tempo')?.[1]||0)} sub="Jatuh tempo"/><Card title="NOT DUE" value={money(due.find(x=>x[0]==='Belum Jatuh Tempo')?.[1]||0)} sub="Belum jatuh tempo"/><Card title="VENDOR" value={vendors.length+'+'} sub="Top vendor"/></section>
+ <section className="grid"><Panel title="GRIR by Category"><Bars data={cats}/></Panel><Panel title="Aging"><Bars data={agings}/></Panel><Panel title="Company Code"><Bars data={companies}/></Panel><Panel title="Top Vendor"><Bars data={vendors}/></Panel></section>
+ <section className="tablebox"><div className="tablehead"><div><h2>Outstanding Detail</h2><span>{rows.length.toLocaleString('id-ID')} records</span></div><span className="muted">Nilai ditampilkan sebagai magnitude; data asli tetap menyimpan signed amount.</span></div><div className="tablewrap"><table><thead><tr><th>Document</th><th>Vendor</th><th>Company</th><th>Category</th><th>Posting Date</th><th>Jatuh Tempo</th><th>Aging</th><th>Amount LC</th></tr></thead><tbody>{rows.slice().sort((a,b)=>Math.abs(b.amount)-Math.abs(a.amount)).slice(0,50).map((r,i)=><tr key={i}><td>{r.doc}</td><td>{r.vendor}</td><td>{r.company}</td><td>{r.category}</td><td>{r.posting}</td><td>{r.due}</td><td>{r.aging}</td><td className="num">{money(r.amount)}</td></tr>)}</tbody></table></div></section>
+ <section className="snapshots"><h2>Saved Snapshots</h2>{snapshots.map(s=><div className="snapshot" key={s.id}><button onClick={()=>choose(s)}><CalendarDays size={16}/><b>{s.period}</b><span>{s.rows.length.toLocaleString('id-ID')} rows</span></button><button className="delete" title="Hapus" onClick={()=>remove(s)}><Trash2 size={16}/></button></div>)}</section>
+ </>}
+ <footer>GRIR Dashboard • Mode mudah • Upload & Save di browser</footer></main>
+}
+function Card({title,value,sub}){return <div className="card"><span>{title}</span><strong>{value}</strong><small>{sub}</small></div>}
+function Panel({title,children}){return <div className="panel"><h2>{title}</h2>{children}</div>}
+function Bars({data}){const max=data[0]?.[1]||1;return <div className="bars">{data.slice(0,8).map(([k,v])=><div className="barrow" key={k}><div className="barlabel"><span title={k}>{k||'Lainnya'}</span><b>{money(v)}</b></div><div className="track"><div className="fill" style={{width:`${Math.max(2,(v/max)*100)}%`}}/></div></div>)}</div>}
