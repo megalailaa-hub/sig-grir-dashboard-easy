@@ -111,7 +111,7 @@ function repairRows(list){
    return {...r,amount:(amount!==0?amount:(amountPlus!==0?-amountPlus:0)),amountPlus};
  });
 }
-function summarize(rows,key){const m={}; rows.forEach(r=>{const k=r[key]||'Lainnya';m[k]=(m[k]||0)+Math.abs(r.amount)});return Object.entries(m).sort((a,b)=>b[1]-a[1]);}
+function summarize(rows,key){const m={}; rows.forEach(r=>{const k=r[key]||'Lainnya';m[k]=(m[k]||0)+Number(r.amount||0)});return Object.entries(m).map(([k,v])=>[k,Math.abs(v)]).sort((a,b)=>b[1]-a[1]);}
 function unique(rows,key){return [...new Set(rows.map(r=>r[key]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'id',{numeric:true}));}
 
 export default function Page(){
@@ -126,7 +126,7 @@ export default function Page(){
    (!category||r.category===category)&&(!aging||r.aging===aging)&&(!status||r.status===status)&&(!due||r.due===due)&&(!company||r.company===company)&&(!vendor||r.vendor===vendor)&&
    (!search||[r.vendor,r.doc,r.description,r.po,r.company,r.category,r.status].join(' ').toLowerCase().includes(search.toLowerCase()))
  ),[rows,category,aging,status,due,company,vendor,search]);
- const total=useMemo(()=>filteredRows.reduce((a,r)=>a+Math.abs(r.amount),0),[filteredRows]);
+ const total=useMemo(()=>Math.abs(filteredRows.reduce((a,r)=>a+Number(r.amount||0),0)),[filteredRows]);
  const cats=useMemo(()=>summarize(filteredRows,'category'),[filteredRows]);
  const vendors=useMemo(()=>summarize(filteredRows,'vendor').slice(0,10),[filteredRows]);
  const agings=useMemo(()=>summarize(filteredRows,'aging'),[filteredRows]);
