@@ -6,8 +6,39 @@ import {Upload, Database, CalendarDays, Trash2, FileSpreadsheet, ChevronDown, Sl
 const fmt=n=>new Intl.NumberFormat('id-ID',{maximumFractionDigits:0}).format(Math.abs(Number(n)||0));
 const money=n=>{const v=Math.abs(Number(n)||0); if(v>=1e9)return 'Rp '+(v/1e9).toFixed(1)+' M'; if(v>=1e6)return 'Rp '+(v/1e6).toFixed(1)+' M'; if(v>=1e3)return 'Rp '+(v/1e3).toFixed(0)+' K'; return 'Rp '+fmt(v)};
 const clean=v=>v==null?'':String(v).trim();
+function toNumber(v){
+ if(typeof v==='number' && Number.isFinite(v)) return v;
+ if(v==null || v==='') return 0;
+ let s=String(v).trim().replace(/\s/g,'').replace(/Rp/gi,'');
+ if(!s) return 0;
+ const neg=/^\(.*\)$/.test(s);
+ s=s.replace(/[()]/g,'');
+ // Excel exports may use either 1,234.56 or 1.234.567,89. Detect the decimal separator.
+ if(s.includes('.') && s.includes(',')){
+   if(s.lastIndexOf(',')>s.lastIndexOf('.')) s=s.replace(/\./g,'').replace(',','.');
+   else s=s.replace(/,/g,'');
+ }else if((s.match(/\./g)||[]).length>1){
+   s=s.replace(/\./g,'');
+ }else if((s.match(/,/g)||[]).length>1){
+   s=s.replace(/,/g,'');
+ }else if(s.includes(',') && !s.includes('.')){
+   const parts=s.split(',');
+   s=parts[1]?.length===3 ? parts.join('') : s.replace(',','.');
+ }
+ const n=Number(s);
+ return Number.isFinite(n) ? (neg?-Math.abs(n):n) : 0;
+}
 function normalize(r){
- return {company:clean(r['Company Code']),account:clean(r['Account']),doc:clean(r['Document Number']),posting:clean(r['Posting Date']),amount:Number(r['Amount in local currency'])||0,amountPlus:Number(r['Amount +'])||0,vendor:clean(r['Nama Vendor']),category:clean(r['Kategori']),due:clean(r['Jatuh Tempo']),aging:clean(r['Umur Hutang']),status:clean(r['Status Grouping']),action:clean(r['Action']),remark:clean(r['Remark']),po:clean(r['Purchasing Document']),description:clean(r['Text'])};
+ const amount=toNumber(r['Amount in local currency']);
+ const amountPlus=toNumber(r['Amount +']);
+ return {company:clean(r['Company Code']),account:clean(r['Account']),doc:clean(r['Document Number']),posting:clean(r['Posting Date']),amount:amount||(-amountPlus),amountPlus,vendor:clean(r['Nama Vendor']),category:clean(r['Kategori']),due:clean(r['Jatuh Tempo']),aging:clean(r['Umur Hutang']),status:clean(r['Status Grouping']),action:clean(r['Action']),remark:clean(r['Remark']),po:clean(r['Purchasing Document']),description:clean(r['Text'])};
+}
+function repairRows(list){
+ return (Array.isArray(list)?list:[]).map(r=>{
+   const amount=toNumber(r.amount);
+   const amountPlus=toNumber(r.amountPlus);
+   return {...r,amount:(amount!==0?amount:(amountPlus!==0?-amountPlus:0)),amountPlus};
+ });
 }
 function summarize(rows,key){const m={}; rows.forEach(r=>{const k=r[key]||'Lainnya';m[k]=(m[k]||0)+Math.abs(r.amount)});return Object.entries(m).sort((a,b)=>b[1]-a[1]);}
 function unique(rows,key){return [...new Set(rows.map(r=>r[key]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'id',{numeric:true}));}
@@ -17,7 +48,7 @@ export default function Page(){
  const [category,setCategory]=useState(''),[aging,setAging]=useState(''),[status,setStatus]=useState(''),[due,setDue]=useState(''),[company,setCompany]=useState(''),[vendor,setVendor]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(1);
  const pageSize=10;
 
- useEffect(()=>{try{const s=JSON.parse(localStorage.getItem('sig_grir_snapshots')||'[]');setSnapshots(s);if(s[0]){setActive(s[0].id);setPeriod(s[0].period);setRows(s[0].rows)}}catch{}},[]);
+ useEffect(()=>{try{const s=JSON.parse(localStorage.getItem('sig_grir_snapshots')||'[]');const repaired=(Array.isArray(s)?s:[]).map(x=>({...x,rows:repairRows(x.rows)}));setSnapshots(repaired);if(repaired[0]){setActive(repaired[0].id);setPeriod(repaired[0].period);setRows(repaired[0].rows);localStorage.setItem('sig_grir_snapshots',JSON.stringify(repaired))}}catch(err){setMsg('Snapshot lama tidak dapat dipulihkan. Silakan upload ulang Excel.')}},[]);
  useEffect(()=>{setPage(1)},[category,aging,status,due,company,vendor,search,period]);
 
  const filteredRows=useMemo(()=>rows.filter(r=>
@@ -41,7 +72,7 @@ export default function Page(){
  const activeFilterCount=[category,aging,status,due,company,vendor,search].filter(Boolean).length;
 
  function saveSnapshot(nextRows,p){const id=p+'-'+Date.now(); const item={id,period:p,rows:nextRows,savedAt:new Date().toISOString()}; const next=[item,...snapshots.filter(x=>x.period!==p)].slice(0,24); setSnapshots(next);setActive(id);localStorage.setItem('sig_grir_snapshots',JSON.stringify(next));}
- async function onFile(e){const f=e.target.files?.[0];if(!f)return;setLoading(true);setMsg('Membaca Excel...');try{const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const ws=wb.Sheets['Data Source']||wb.Sheets[wb.SheetNames[1]];const raw=XLSX.utils.sheet_to_json(ws,{defval:''});const nr=raw.map(normalize);const inferred=(f.name.match(/(\d{2})[._-]?(\d{2})/)||[]);const p=inferred[1]&&inferred[2]?`${inferred[1]}.20${inferred[2]}`:new Date().toLocaleDateString('id-ID',{month:'2-digit',year:'numeric'});setRows(nr);setPeriod(p);clearFilters();saveSnapshot(nr,p);setMsg(`${fmt(nr.length)} baris berhasil disimpan sebagai periode ${p}.`)}catch(err){setMsg('Excel tidak bisa dibaca. Pastikan ada sheet Data Source.')}finally{setLoading(false)}}
+ async function onFile(e){const f=e.target.files?.[0];if(!f)return;setLoading(true);setMsg('Membaca Excel...');try{const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const ws=wb.Sheets['Data Source']||wb.Sheets[wb.SheetNames[1]];const raw=XLSX.utils.sheet_to_json(ws,{defval:''});const nr=raw.map(normalize);if(!nr.length)throw new Error('Sheet Data Source kosong');const inferred=(f.name.match(/(\d{2})[._-]?(\d{2})/)||[]);const p=inferred[1]&&inferred[2]?`${inferred[1]}.20${inferred[2]}`:new Date().toLocaleDateString('id-ID',{month:'2-digit',year:'numeric'});setRows(nr);setPeriod(p);clearFilters();saveSnapshot(nr,p);setMsg(`${fmt(nr.length)} baris berhasil disimpan sebagai periode ${p}.`)}catch(err){setMsg(`Excel tidak bisa dibaca: ${err?.message||'format tidak dikenali'}. Pastikan ada sheet Data Source.`)}finally{setLoading(false)}}
  function choose(s){setActive(s.id);setPeriod(s.period);setRows(s.rows);clearFilters();setMsg(`Menampilkan snapshot ${s.period}.`)}
  function remove(s){const next=snapshots.filter(x=>x.id!==s.id);setSnapshots(next);localStorage.setItem('sig_grir_snapshots',JSON.stringify(next));if(active===s.id){const x=next[0];if(x)choose(x);else{setRows([]);setPeriod('');setActive('');clearFilters()}}}
  function clearFilters(){setCategory('');setAging('');setStatus('');setDue('');setCompany('');setVendor('');setSearch('');setPage(1)}
