@@ -74,10 +74,35 @@ function toNumber(v){
  const n=Number(s);
  return Number.isFinite(n) ? (neg?-Math.abs(n):n) : 0;
 }
+function getField(r,names){
+ const wanted=names.map(x=>String(x).trim().toLowerCase());
+ const key=Object.keys(r||{}).find(k=>wanted.includes(String(k).trim().toLowerCase()));
+ return key===undefined?'':r[key];
+}
 function normalize(r){
- const amount=toNumber(r['Amount in local currency']);
- const amountPlus=toNumber(r['Amount +']);
- return {company:clean(r['Company Code']),account:clean(r['Account']),doc:clean(r['Document Number']),posting:clean(r['Posting Date']),amount:amount||(-amountPlus),amountPlus,vendor:clean(r['Nama Vendor']),category:clean(r['Kategori']),due:clean(r['Jatuh Tempo']),aging:clean(r['Umur Hutang']),status:clean(r['Status Grouping']),action:clean(r['Action']),remark:clean(r['Remark']),po:clean(r['Purchasing Document']),description:clean(r['Text'])};
+ const rawAmount=getField(r,['Amount in local currency','Amount in local currency ']);
+ const rawPlus=getField(r,['Amount +','Amount+']);
+ const amount=toNumber(rawAmount);
+ const amountPlus=toNumber(rawPlus);
+ // Prioritas selalu Amount in local currency (signed). Amount + hanya fallback jika kolom utama kosong/tidak terbaca.
+ const finalAmount=Number.isFinite(amount) && amount!==0 ? amount : (Number.isFinite(amountPlus) && amountPlus!==0 ? -Math.abs(amountPlus) : 0);
+ return {
+  company:clean(getField(r,['Company Code'])),
+  account:clean(getField(r,['Account'])),
+  doc:clean(getField(r,['Document Number'])),
+  posting:clean(getField(r,['Posting Date'])),
+  amount:finalAmount,
+  amountPlus,
+  vendor:clean(getField(r,['Nama Vendor'])),
+  category:clean(getField(r,['Kategori'])),
+  due:clean(getField(r,['Jatuh Tempo'])),
+  aging:clean(getField(r,['Umur Hutang'])),
+  status:clean(getField(r,['Status Grouping'])),
+  action:clean(getField(r,['Action'])),
+  remark:clean(getField(r,['Remark'])),
+  po:clean(getField(r,['Purchasing Document'])),
+  description:clean(getField(r,['Text']))
+ };
 }
 function repairRows(list){
  return (Array.isArray(list)?list:[]).map(r=>{
@@ -118,7 +143,7 @@ export default function Page(){
  const activeFilterCount=[category,aging,status,due,company,vendor,search].filter(Boolean).length;
 
  async function saveSnapshot(nextRows,p){const id=p+'-'+Date.now(); const item={id,period:p,rowCount:nextRows.length,rows:nextRows,savedAt:new Date().toISOString()}; const existing=await idbGetAll(); const samePeriod=existing.filter(x=>x.period!==p); const next=[item,...samePeriod].sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt))).slice(0,24); const removeIds=existing.filter(x=>!next.some(n=>n.id===x.id)).map(x=>x.id); await idbPut(item); for(const rid of removeIds) await idbDelete(rid); setSnapshots(next);setActive(id);return item;}
- async function onFile(e){const f=e.target.files?.[0];if(!f)return;setLoading(true);setMsg('Membaca Excel...');try{const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const ws=wb.Sheets['Data Source'];if(!ws)throw new Error('Sheet Data Source tidak ditemukan');const raw=XLSX.utils.sheet_to_json(ws,{defval:''});const nr=raw.map(normalize);if(!nr.length)throw new Error('Sheet Data Source kosong');const inferred=(f.name.match(/(\d{2})[._-]?(\d{2})/)||[]);const p=inferred[1]&&inferred[2]?`${inferred[1]}.20${inferred[2]}`:new Date().toLocaleDateString('id-ID',{month:'2-digit',year:'numeric'});await saveSnapshot(nr,p);setRows(nr);setPeriod(p);clearFilters();setMsg(`${fmt(nr.length)} baris berhasil disimpan sebagai periode ${p}.`)}catch(err){console.error(err);setMsg(`Excel gagal diproses: ${err?.message||'format tidak dikenali'}.`)}finally{setLoading(false);if(e.target)e.target.value=''}}
+ async function onFile(e){const f=e.target.files?.[0];if(!f)return;setLoading(true);setMsg('Membaca Excel...');try{const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const ws=wb.Sheets['Data Source'];if(!ws)throw new Error('Sheet Data Source tidak ditemukan');const raw=XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});if(!raw.length)throw new Error('Sheet Data Source kosong');const nr=raw.map(normalize);const amountRows=nr.filter(r=>r.amount!==0).length;if(!amountRows)throw new Error('Kolom Amount in local currency terbaca 0 pada seluruh baris. Pastikan file yang di-upload adalah GRIR dengan sheet Data Source.');const inferred=(f.name.match(/(\d{2})[._-]?(\d{2})/)||[]);const p=inferred[1]&&inferred[2]?`${inferred[1]}.20${inferred[2]}`:new Date().toLocaleDateString('id-ID',{month:'2-digit',year:'numeric'});await saveSnapshot(nr,p);setRows(nr);setPeriod(p);clearFilters();setMsg(`${fmt(nr.length)} baris berhasil disimpan sebagai periode ${p}. Amount terbaca pada ${fmt(amountRows)} baris.`)}catch(err){console.error(err);setMsg(`Excel gagal diproses: ${err?.message||'format tidak dikenali'}.`)}finally{setLoading(false);if(e.target)e.target.value=''}}
  function choose(s){setActive(s.id);setPeriod(s.period);setRows(s.rows);clearFilters();setMsg(`Menampilkan snapshot ${s.period}.`)}
  async function remove(s){try{await idbDelete(s.id);const next=sortSnapshots(await idbGetAll());setSnapshots(next);if(active===s.id){const x=next[0];if(x)choose(x);else{setRows([]);setPeriod('');setActive('');clearFilters()}}setMsg(`Snapshot ${s.period} dihapus.`)}catch(err){setMsg(`Gagal menghapus snapshot: ${err?.message||''}`)}}
  function clearFilters(){setCategory('');setAging('');setStatus('');setDue('');setCompany('');setVendor('');setSearch('');setPage(1)}
