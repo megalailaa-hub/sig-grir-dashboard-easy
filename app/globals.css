@@ -16,3 +16,7 @@ main{max-width:1500px;margin:auto;padding:34px 38px 22px}header{position:relativ
 
 .cardtrend{position:relative;z-index:2;display:flex;align-items:center;gap:10px;margin-top:11px;font-size:10px;color:#7c8fad}.cardtrend b{padding:6px 9px;border-radius:8px;background:#e9f8f1;color:#15946d;font-size:10px}.card-due .cardtrend b{background:#fff1e5;color:#e68a2f}.card-vendor .cardtrend b{background:#f0edff;color:#6952e6}
 .panel{position:relative}.panelcontrol{position:absolute;right:18px;top:16px;z-index:2;display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid #dce7f5;background:#fbfdff;border-radius:10px;color:#193a72;font-size:11px;font-weight:850}.panel h2{padding-right:160px}
+
+.statuspill,.classpill{display:inline-flex;align-items:center;max-width:240px;min-height:24px;padding:4px 9px;border-radius:999px;font-size:10px;font-weight:800;line-height:1.25;white-space:nowrap}.statuspill{background:#e7f0ff;color:#2464d8}.statuspill.abnormal{background:#ffe8e8;color:#c83d45}.classpill{background:#eef3fb;color:#49668e;border:1px solid #dce6f3;white-space:normal}.tablehead h2{margin-bottom:4px}.tablehead>div:first-child span{display:block;color:#8396b5;font-size:10px}
+
+.cardtrend.up b{background:#e9f8f1;color:#15946d}.cardtrend.down b{background:#fff0f0;color:#d94b4b}.cardtrend.muted b{background:#f1f4f8;color:#8796aa}.cardtrend span{white-space:nowrap}
