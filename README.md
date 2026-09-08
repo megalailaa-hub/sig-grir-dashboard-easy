@@ -1,15 +1,20 @@
-# SIG GRIR Dashboard Easy v1.1
+# SIG GRIR Dashboard — Supabase edition
 
-Perbaikan utama:
-- Membaca sheet `Data Source` dengan validasi.
-- Menggunakan `Amount in local currency` sebagai nominal utama.
-- Menampilkan nominal sebagai nilai absolut agar cocok untuk dashboard GRIR.
-- Periode dibaca dari kolom `period` terlebih dahulu; contoh `2026-08-01` menjadi `08.2026`.
-- Snapshot disimpan di IndexedDB, bukan localStorage, sehingga 42 ribu+ baris tidak mentok batas localStorage.
-- Tetap berupa static Next.js export sehingga mudah di-deploy ke Vercel.
-- Next.js diperbarui ke 15.5.24 dan React 19.1.7.
+Based on v12 dashboard. UI and dashboard calculations are preserved; browser IndexedDB is replaced by central Supabase storage.
 
-## Deploy
-Upload isi folder ini ke root repository GitHub, lalu Vercel akan build otomatis.
+## Architecture
+- `/` = public read-only dashboard
+- `/admin` = Supabase Auth admin login + Excel upload
+- `/api/admin/upload` = server-side Excel ingestion using service-role key
+- Public users have SELECT-only access through RLS
 
-Catatan: IndexedDB bersifat per-browser/per-device. Untuk penyimpanan terpusat lintas komputer, tambahkan database/server di tahap berikutnya.
+## Vercel environment variables
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or publishable key)
+- `SUPABASE_SERVICE_ROLE_KEY` (server-only; never expose to browser)
+- `ADMIN_EMAIL`
+
+Create the admin account in Supabase Auth with the email in `ADMIN_EMAIL`.
+
+## Important
+Existing browser IndexedDB snapshots are not automatically migrated. Re-upload each required month once the central version is deployed.
