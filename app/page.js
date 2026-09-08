@@ -18,7 +18,7 @@ async function getRows(period){
  while(true){
   const data=await supa(`grir_transactions?select=company_code,account,document_number,posting_date,amount,vendor_name,category,due_status,age_group,status,status_grouping,action,remark,purchasing_document,text&period=eq.${encodeURIComponent(period)}&order=id.asc&limit=${size}&offset=${from}`);
   if(!data.length) break;
-  out.push(...data.map(r=>({company:clean(r.company_code),account:clean(r.account),doc:clean(r.document_number),posting:clean(r.posting_date),amount:toNumber(r.amount),amountPlus:0,vendor:clean(r.vendor_name),category:clean(r.category),due:clean(r.due_status),aging:clean(r.age_group),status:clean(r.status),classification:clean(r.status_grouping),action:clean(r.action),remark:clean(r.remark),po:clean(r.purchasing_document),description:clean(r.text)}))));
+  out.push(...data.map(r=>({company:clean(r.company_code),account:clean(r.account),doc:clean(r.document_number),posting:clean(r.posting_date),amount:toNumber(r.amount),amountPlus:0,vendor:clean(r.vendor_name),category:clean(r.category),due:clean(r.due_status),aging:clean(r.age_group),status:clean(r.status),classification:clean(r.status_grouping),action:clean(r.action),remark:clean(r.remark),po:clean(r.purchasing_document),description:clean(r.text)})));
   if(data.length<size) break; from+=size;
  }
  return out;
