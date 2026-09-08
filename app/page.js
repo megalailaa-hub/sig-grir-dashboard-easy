@@ -18,7 +18,7 @@ async function getRows(period){
  while(true){
   const data=await supa(`grir_transactions?select=company_code,account,document_number,posting_date,amount,vendor_name,category,due_status,age_group,status,status_grouping,action,remark,purchasing_document,text&period=eq.${encodeURIComponent(period)}&order=id.asc&limit=${size}&offset=${from}`);
   if(!data.length) break;
-  out.push(...data.map(r=>({company:clean(r.company_code),account:clean(r.account),doc:clean(r.document_number),posting:clean(r.posting_date),amount:toNumber(r.amount),amountPlus:0,vendor:clean(r.vendor_name),category:clean(r.category),due:clean(r.due_status),aging:clean(r.age_group),status:clean(r.status),classification:clean(r.status_grouping),action:clean(r.action),remark:clean(r.remark),po:clean(r.purchasing_document),description:clean(r.text)})));
+  out.push(...data.map(r=>({company:clean(r.company_code),account:clean(r.account),doc:clean(r.document_number),posting:clean(r.posting_date),amount:toNumber(r.amount),amountPlus:0,vendor:clean(r.vendor_name),category:clean(r.category),due:clean(r.due_status),aging:clean(r.age_group),status:clean(r.status),classification:clean(r.status_grouping),action:clean(r.action),remark:clean(r.remark),po:clean(r.purchasing_document),description:clean(r.text)}))));
   if(data.length<size) break; from+=size;
  }
  return out;
@@ -101,11 +101,11 @@ function applyFilters(source,{category,aging,status,classification,due,company,v
 function changePct(current,previous){if(previous===0)return current===0?0:null;return ((current-previous)/Math.abs(previous))*100;}
 
 export default function Page(){
- const [rows,setRows]=useState([]),[period,setPeriod]=useState(''),[snapshots,setSnapshots]=useState([]),[active,setActive]=useState(''),[loading,setLoading]=useState(false),[msg,setMsg]=useState('');
+ const [rows,setRows]=useState([]),[previousRows,setPreviousRows]=useState([]),[period,setPeriod]=useState(''),[snapshots,setSnapshots]=useState([]),[active,setActive]=useState(''),[loading,setLoading]=useState(false),[msg,setMsg]=useState('');
  const [category,setCategory]=useState(''),[aging,setAging]=useState(''),[status,setStatus]=useState(''),[classification,setClassification]=useState(''),[due,setDue]=useState(''),[company,setCompany]=useState(''),[vendor,setVendor]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(1);
  const pageSize=10;
 
- useEffect(()=>{let cancelled=false;setLoading(true);getUploads().then(async list=>{const ordered=sortSnapshots(list.map(x=>({id:String(x.id),period:formatPeriod(x.period),dbPeriod:x.period,rowCount:x.row_count,savedAt:x.uploaded_at,fileName:x.file_name}))); if(cancelled)return;setSnapshots(ordered);if(ordered[0]){setActive(ordered[0].id);setPeriod(formatPeriod(ordered[0].period));const r=await getRows(ordered[0].dbPeriod);if(!cancelled)setRows(r)}}).catch(err=>{if(!cancelled)setMsg(`Supabase belum bisa dibaca: ${err?.message||'silakan refresh halaman.'}`)}).finally(()=>{if(!cancelled)setLoading(false)});return()=>{cancelled=true}},[]);
+ useEffect(()=>{let cancelled=false;setLoading(true);getUploads().then(async list=>{const ordered=sortSnapshots(list.map(x=>({id:String(x.id),period:formatPeriod(x.period),dbPeriod:x.period,rowCount:x.row_count,savedAt:x.uploaded_at,fileName:x.file_name}))); if(cancelled)return;setSnapshots(ordered);if(ordered[0]){const currentLabel=formatPeriod(ordered[0].period);const prevLabel=previousPeriod(currentLabel);const prevSnap=ordered.find(s=>s.period===prevLabel);setActive(ordered[0].id);setPeriod(currentLabel);const [current,prev]=await Promise.all([getRows(ordered[0].dbPeriod),prevSnap?getRows(prevSnap.dbPeriod):Promise.resolve([])]);if(!cancelled){setRows(current);setPreviousRows(prev);setMsg(prevSnap?`Menampilkan snapshot ${currentLabel}. Pembanding: ${prevLabel}.`:`Menampilkan snapshot ${currentLabel}. Belum ada snapshot pembanding.`)}}}).catch(err=>{if(!cancelled)setMsg(`Supabase belum bisa dibaca: ${err?.message||'silakan refresh halaman.'}`)}).finally(()=>{if(!cancelled)setLoading(false)});return()=>{cancelled=true}},[]);
  useEffect(()=>{setPage(1)},[category,aging,status,classification,due,company,vendor,search,period]);
 
  const filterState={category,aging,status,classification,due,company,vendor,search};
@@ -113,15 +113,15 @@ export default function Page(){
  const currentSnapshot=useMemo(()=>snapshots.find(s=>s.id===active)||null,[snapshots,active]);
  const previousPeriodLabel=useMemo(()=>previousPeriod(period),[period]);
  const previousSnapshot=useMemo(()=>snapshots.find(s=>s.period===previousPeriodLabel)||null,[snapshots,previousPeriodLabel]);
- const previousRows=useMemo(()=>previousSnapshot?applyFilters(previousSnapshot.rows,filterState):[],[previousSnapshot,category,aging,status,classification,due,company,vendor,search]);
+ const filteredPreviousRows=useMemo(()=>previousSnapshot?applyFilters(previousRows,filterState):[],[previousSnapshot,previousRows,category,aging,status,classification,due,company,vendor,search]);
  const total=useMemo(()=>Math.abs(filteredRows.reduce((a,r)=>a+Number(r.amount||0),0)),[filteredRows]);
- const previousTotal=useMemo(()=>previousSnapshot?Math.abs(previousRows.reduce((a,r)=>a+Number(r.amount||0),0)):null,[previousSnapshot,previousRows]);
+ const previousTotal=useMemo(()=>previousSnapshot?Math.abs(filteredPreviousRows.reduce((a,r)=>a+Number(r.amount||0),0)):null,[previousSnapshot,filteredPreviousRows]);
  const dueAmount=useMemo(()=>Math.abs(filteredRows.filter(r=>r.due==='Jatuh Tempo').reduce((a,r)=>a+Number(r.amount||0),0)),[filteredRows]);
- const previousDue=useMemo(()=>previousSnapshot?Math.abs(previousRows.filter(r=>r.due==='Jatuh Tempo').reduce((a,r)=>a+Number(r.amount||0),0)):null,[previousSnapshot,previousRows]);
+ const previousDue=useMemo(()=>previousSnapshot?Math.abs(filteredPreviousRows.filter(r=>r.due==='Jatuh Tempo').reduce((a,r)=>a+Number(r.amount||0),0)):null,[previousSnapshot,filteredPreviousRows]);
  const notDueAmount=useMemo(()=>Math.abs(filteredRows.filter(r=>r.due==='Belum Jatuh Tempo').reduce((a,r)=>a+Number(r.amount||0),0)),[filteredRows]);
- const previousNotDue=useMemo(()=>previousSnapshot?Math.abs(previousRows.filter(r=>r.due==='Belum Jatuh Tempo').reduce((a,r)=>a+Number(r.amount||0),0)):null,[previousSnapshot,previousRows]);
+ const previousNotDue=useMemo(()=>previousSnapshot?Math.abs(filteredPreviousRows.filter(r=>r.due==='Belum Jatuh Tempo').reduce((a,r)=>a+Number(r.amount||0),0)):null,[previousSnapshot,filteredPreviousRows]);
  const vendorCount=useMemo(()=>unique(filteredRows,'vendor').length,[filteredRows]);
- const previousVendorCount=useMemo(()=>previousSnapshot?unique(previousRows,'vendor').length:null,[previousSnapshot,previousRows]);
+ const previousVendorCount=useMemo(()=>previousSnapshot?unique(filteredPreviousRows,'vendor').length:null,[previousSnapshot,filteredPreviousRows]);
  const trends=useMemo(()=>({total:previousTotal===null?null:changePct(total,previousTotal),due:previousDue===null?null:changePct(dueAmount,previousDue),notdue:previousNotDue===null?null:changePct(notDueAmount,previousNotDue),vendor:previousVendorCount===null?null:changePct(vendorCount,previousVendorCount)}),[total,previousTotal,dueAmount,previousDue,notDueAmount,previousNotDue,vendorCount,previousVendorCount]);
  const cats=useMemo(()=>summarize(filteredRows,'category'),[filteredRows]);
  const vendors=useMemo(()=>summarize(filteredRows,'vendor').slice(0,10),[filteredRows]);
@@ -140,7 +140,7 @@ export default function Page(){
  const activeFilterCount=[category,aging,status,classification,due,company,vendor,search].filter(Boolean).length;
 
  async function onFile(){setMsg('Upload hanya tersedia di halaman Admin.');}
- async function choose(s){setActive(s.id);setPeriod(formatPeriod(s.period));setLoading(true);clearFilters();try{const r=await getRows(s.dbPeriod||dbPeriod(s.period));setRows(r);setMsg(`Menampilkan snapshot ${formatPeriod(s.period)}.`)}catch(err){setMsg(`Gagal mengambil data: ${err?.message||''}`)}finally{setLoading(false)}}
+ async function choose(s){const nextLabel=formatPeriod(s.period);const prevLabel=previousPeriod(nextLabel);const prevSnap=snapshots.find(x=>x.period===prevLabel)||null;setActive(s.id);setPeriod(nextLabel);setLoading(true);clearFilters();try{const [current,prev]=await Promise.all([getRows(s.dbPeriod||dbPeriod(s.period)),prevSnap?getRows(prevSnap.dbPeriod||dbPeriod(prevSnap.period)):Promise.resolve([])]);setRows(current);setPreviousRows(prev);setMsg(prevSnap?`Menampilkan snapshot ${nextLabel}. Pembanding: ${prevLabel}.`:`Menampilkan snapshot ${nextLabel}. Belum ada snapshot pembanding.`)}catch(err){setRows([]);setPreviousRows([]);setMsg(`Gagal mengambil data: ${err?.message||''}`)}finally{setLoading(false)}}
  function clearFilters(){setCategory('');setAging('');setStatus('');setClassification('');setDue('');setCompany('');setVendor('');setSearch('');setPage(1)}
  function toggle(setter,value,current){setter(current===value?'':value)}
 
