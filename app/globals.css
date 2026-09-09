@@ -63,3 +63,28 @@ main{max-width:1536px;margin:auto;padding:20px 28px 28px}
 footer{padding:22px 3px 8px;color:#6f86a5;font-size:11px;display:flex;justify-content:space-between}.loading{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#f4f8ff;color:#123b78}.loading span{color:#6b83a5;font-size:13px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 
 @media(max-width:1250px){main{padding:16px}.nav a{padding:11px 15px}.filter-card{grid-template-columns:170px repeat(3,1fr)}.reset{grid-column:4}.kpi-grid{grid-template-columns:repeat(3,1fr)}.chart-grid,.table-grid{grid-template-columns:1fr 1fr}.trend-panel{grid-column:span 2}}
+
+.detail-actions{display:flex;align-items:center;gap:9px}
+.download-btn{height:38px;border:0;border-radius:9px;background:#1265df;color:#fff;padding:0 13px;font-size:12px;font-weight:800;display:flex;align-items:center;gap:7px;cursor:pointer;box-shadow:0 5px 12px rgba(18,101,223,.16)}
+.download-btn:hover{background:#0d58c5}
+@media(max-width:1250px){.detail-actions{flex-wrap:wrap;justify-content:flex-end}.search{width:230px}}
+
+/* V6: filter interaction and responsive layout */
+.filter-card{position:relative;z-index:20;display:flex;align-items:flex-end;gap:12px;overflow-x:auto;overflow-y:visible;scrollbar-width:thin}
+.filter-title{flex:0 0 190px}
+.filter-card label{flex:1 0 145px;min-width:145px}
+.filter-card label:nth-of-type(4){flex-basis:190px}
+.filter-card select{position:relative;z-index:30;cursor:pointer;pointer-events:auto;appearance:auto;-webkit-appearance:auto}
+.filter-card select:focus{outline:2px solid #8bb9f4;outline-offset:1px;border-color:#4f91e9}
+.filter-card .reset{flex:0 0 90px;position:relative;z-index:30;cursor:pointer}
+.detail-actions{display:flex;align-items:center;gap:9px}
+.download-btn{height:38px;border:0;border-radius:9px;background:#1265df;color:#fff;padding:0 13px;font-size:12px;font-weight:800;display:flex;align-items:center;gap:7px;cursor:pointer;box-shadow:0 5px 12px rgba(18,101,223,.16)}
+.download-btn:hover{background:#0d58c5}
+@media(max-width:1250px){
+  .filter-card{display:flex;flex-wrap:nowrap;overflow-x:auto;padding-bottom:12px}
+  .filter-title{flex:0 0 170px}
+  .filter-card label{flex:0 0 170px}
+  .filter-card label:nth-of-type(4){flex-basis:200px}
+  .filter-card .reset{flex:0 0 90px}
+  .detail-actions{flex-wrap:wrap;justify-content:flex-end}
+}
