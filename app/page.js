@@ -139,6 +139,58 @@ function Card({ icon, title, value, subtitle, delta, down, tone='blue' }) {
   </div>;
 }
 
+
+function downloadCsv(rows) {
+  const headers = [
+    'No','Company','Vendor','No. Dokumen','Jatuh Tempo','Aging',
+    'Jumlah (LC)','Status','Kategori','Action'
+  ];
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [
+    headers.map(esc).join(','),
+    ...rows.map((r,i) => [
+      i + 1,
+      clean(r.company_code),
+      clean(r.vendor_name),
+      clean(r.document_number),
+      clean(r.due_status),
+      clean(r.age_group),
+      signedAmount(r),
+      clean(r.status),
+      clean(r.category),
+      clean(r.action) || clean(r.remark)
+    ].map(esc).join(','))
+  ];
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `GRIR_${periodSafe(rows)}_Transaction_Detail.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function periodSafe(rows) {
+  return rows?.length ? 'filtered' : 'data';
+}
+
+
+const field = (r, ...keys) => {
+  for (const k of keys) {
+    const v = r?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+  }
+  return '';
+};
+const categoryOf = (r) => clean(field(r,'category','kategori'));
+const agingOf = (r) => clean(field(r,'age_group','aging','umur_hutang'));
+const statusOf = (r) => clean(field(r,'status'));
+const classificationOf = (r) => clean(field(r,'classification','klasifikasi','status_grouping'));
+const dueOf = (r) => clean(field(r,'due_status','jatuh_tempo'));
+const companyOf = (r) => clean(field(r,'company_code','company'));
+const vendorOf = (r) => clean(field(r,'vendor_name','vendor','nama_vendor'));
+const actionOf = (r) => clean(field(r,'action','remark','status_grouping'));
+
 export default function Page() {
   const [snapshots, setSnapshots] = useState([]);
   const [period, setPeriod] = useState('');
@@ -191,25 +243,25 @@ export default function Page() {
   const opts = useMemo(() => {
     const uniq = (key) => [...new Set(rows.map(r => clean(r[key])).filter(Boolean))].sort();
     return {
-      category: uniq('category'),
-      aging: uniq('age_group'),
-      status: uniq('status'),
-      klasifikasi: uniq('classification'),
-      company: uniq('company_code'),
-      due: uniq('due_status')
+      category: [...new Set(rows.map(categoryOf).filter(Boolean))].sort(),
+      aging: [...new Set(rows.map(agingOf).filter(Boolean))].sort(),
+      status: [...new Set(rows.map(statusOf).filter(Boolean))].sort(),
+      klasifikasi: [...new Set(rows.map(classificationOf).filter(Boolean))].sort(),
+      company: [...new Set(rows.map(companyOf).filter(Boolean))].sort(),
+      due: [...new Set(rows.map(dueOf).filter(Boolean))].sort()
     };
   }, [rows]);
 
   const filtered = useMemo(() => rows.filter(r => {
     const q = search.toLowerCase();
-    const hay = [r.vendor_name,r.document_number,r.purchasing_document,r.company_code,r.text,r.action,r.remark].map(clean).join(' ').toLowerCase();
+    const hay = [vendorOf(r),field(r,'document_number','document_no'),field(r,'purchasing_document','po'),companyOf(r),field(r,'text'),actionOf(r)].map(clean).join(' ').toLowerCase();
     return (!q || hay.includes(q))
-      && (!filters.category || clean(r.category)===filters.category)
-      && (!filters.aging || clean(r.age_group)===filters.aging)
-      && (!filters.status || clean(r.status)===filters.status)
-      && (!filters.klasifikasi || clean(r.classification)===filters.klasifikasi)
-      && (!filters.due || clean(r.due_status)===filters.due)
-      && (!filters.company || clean(r.company_code)===filters.company);
+      && (!filters.category || categoryOf(r)===filters.category)
+      && (!filters.aging || agingOf(r)===filters.aging)
+      && (!filters.status || statusOf(r)===filters.status)
+      && (!filters.klasifikasi || classificationOf(r)===filters.klasifikasi)
+      && (!filters.due || dueOf(r)===filters.due)
+      && (!filters.company || companyOf(r)===filters.company);
   }), [rows,filters,search]);
 
   const stats = useMemo(() => {
@@ -311,7 +363,7 @@ export default function Page() {
       <div className="filter-title"><Filter size={22}/><b>Filter Dashboard</b></div>
       {[
         ['category','Kategori'],['aging','Aging'],['status','Status'],['klasifikasi','Klasifikasi'],['due','Jatuh Tempo'],['company','Company']
-      ].map(([key,label])=><label key={key}><small>{label}</small><select value={filters[key]} onChange={e=>setFilters({...filters,[key]:e.target.value})}><option value="">Semua</option>{opts[key].map(x=><option key={x}>{x}</option>)}</select></label>)}
+      ].map(([key,label])=><label key={key}><small>{label}</small><select aria-label={label} value={filters[key]} onChange={e=>setFilters(prev=>({...prev,[key]:e.target.value}))}><option value="">Semua</option>{opts[key].map(x=><option key={x} value={x}>{x}</option>)}</select></label>)}
       <button className="reset" onClick={reset}><RotateCcw size={17}/> Reset</button>
     </section>
 
@@ -349,12 +401,16 @@ export default function Page() {
     </section>
 
     <section className="panel detail-panel">
-      <div className="panel-head"><div><h2><FileText size={20}/> Transaction Detail</h2><p>{integer(filtered.length)} transaksi sesuai filter</p></div>
-        <div className="search"><Search size={17}/><input placeholder="Cari vendor, dokumen, PO..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
+      <div className="panel-head">
+        <div><h2><FileText size={20}/> Transaction Detail</h2><p>{integer(filtered.length)} transaksi sesuai filter • Menampilkan 10 item</p></div>
+        <div className="detail-actions">
+          <div className="search"><Search size={17}/><input placeholder="Cari vendor, dokumen, PO..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
+          <button className="download-btn" onClick={() => downloadCsv(filtered)}><FileText size={16}/> Download</button>
+        </div>
       </div>
       <div className="table-scroll"><table><thead><tr><th>No</th><th>Company</th><th>Vendor</th><th>No. Dokumen</th><th>Jatuh Tempo</th><th>Aging</th><th>Jumlah (LC)</th><th>Status</th><th>Kategori</th><th>Action</th></tr></thead>
-      <tbody>{filtered.slice(0,100).map((r,i)=><tr key={r.id||i}><td>{i+1}</td><td>{clean(r.company_code)}</td><td className="strong">{clean(r.vendor_name)||'—'}</td><td>{clean(r.document_number)||'—'}</td><td>{clean(r.due_status)||'—'}</td><td>{clean(r.age_group)||'—'}</td><td className="amount">{money(signedAmount(r))}</td><td><span className={`badge ${clean(r.status).toLowerCase()==='abnormal'?'bad':'ok'}`}>{clean(r.status)||'—'}</span></td><td>{clean(r.category)||'—'}</td><td>{clean(r.action)||clean(r.remark)||'—'}</td></tr>)}</tbody></table></div>
-      {filtered.length>100 && <div className="table-foot">Menampilkan 100 transaksi pertama dari {integer(filtered.length)}.</div>}
+      <tbody>{filtered.slice(0,10).map((r,i)=><tr key={r.id||i}><td>{i+1}</td><td>{clean(r.company_code)}</td><td className="strong">{clean(r.vendor_name)||'—'}</td><td>{clean(r.document_number)||'—'}</td><td>{clean(r.due_status)||'—'}</td><td>{clean(r.age_group)||'—'}</td><td className="amount">{money(signedAmount(r))}</td><td><span className={`badge ${clean(r.status).toLowerCase()==='abnormal'?'bad':'ok'}`}>{clean(r.status)||'—'}</span></td><td>{clean(r.category)||'—'}</td><td>{clean(r.action)||clean(r.remark)||'—'}</td></tr>)}</tbody></table></div>
+      {filtered.length>10 && <div className="table-foot">Menampilkan 10 transaksi pertama dari {integer(filtered.length)}. Klik Download untuk mengunduh seluruh data sesuai filter.</div>}
     </section>
 
     <footer>SIG • DATA CONTROL <span>GRIR Monitoring • Public Read-Only</span></footer>
