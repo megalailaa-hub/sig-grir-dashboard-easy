@@ -29,19 +29,39 @@ async function getUploads(){
   return supa('grir_uploads?select=id,file_name,period,uploaded_at,row_count,status&status=eq.success&order=period.desc,uploaded_at.desc');
 }
 
-async function getRows(period){
-  const out=[]; const size=1000; let from=0;
-  while(true){
+async function getRows(period, expectedCount=0){
+  const size=1000;
+  const total=Number(expectedCount)||0;
+  const pageCount=total ? Math.ceil(total/size) : 1;
+  const pages=Array.from({length:pageCount},(_,i)=>i*size);
+  const out=[];
+  const batchSize=6;
+
+  const fetchPage = async (from) => {
     const q = `grir_transactions?select=company_code,account,document_number,document_type,posting_date,amount,vendor_name,category,due_status,age_group,status,status_grouping,action,remark,purchasing_document,text,plant&period=eq.${encodeURIComponent(period)}&order=id.asc&limit=${size}&offset=${from}`;
-    const data = await supa(q);
-    if(!data.length) break;
-    out.push(...data.map(r=>({
+    const data=await supa(q);
+    return data.map(r=>({
       company:clean(r.company_code), account:clean(r.account), doc:clean(r.document_number), documentType:clean(r.document_type),
       posting:clean(r.posting_date), amount:num(r.amount), vendor:clean(r.vendor_name)||'Tanpa Vendor', category:clean(r.category)||'Lainnya',
       due:clean(r.due_status), aging:clean(r.age_group), status:clean(r.status), classification:clean(r.status_grouping)||'Lainnya',
       action:clean(r.action), remark:clean(r.remark), po:clean(r.purchasing_document), text:clean(r.text), plant:clean(r.plant)
-    })));
-    if(data.length<size) break; from+=size;
+    }));
+  };
+
+  if(total){
+    for(let i=0;i<pages.length;i+=batchSize){
+      const batch=await Promise.all(pages.slice(i,i+batchSize).map(fetchPage));
+      batch.forEach(rows=>out.push(...rows));
+    }
+  }else{
+    let from=0;
+    while(true){
+      const rows=await fetchPage(from);
+      if(!rows.length) break;
+      out.push(...rows);
+      if(rows.length<size) break;
+      from+=size;
+    }
   }
   return out;
 }
@@ -97,7 +117,7 @@ export default function Page(){
 
   async function loadSnapshot(s,list=snapshots){
     setLoading(true); setMessage(''); clear();
-    try{ const current=await getRows(s.period); const prevLabel=previousPeriod(formatPeriod(s.period)); const prev=(list.length?list:list).find(x=>formatPeriod(x.period)===prevLabel); const prevRows=prev?await getRows(prev.period):[]; setRows(current);setPreviousRows(prevRows);setPeriod(formatPeriod(s.period)); }
+    try{ const current=await getRows(s.period, s.row_count); const prevLabel=previousPeriod(formatPeriod(s.period)); const prev=(list.length?list:list).find(x=>formatPeriod(x.period)===prevLabel); const prevRows=prev?await getRows(prev.period, prev.row_count):[]; setRows(current);setPreviousRows(prevRows);setPeriod(formatPeriod(s.period)); }
     catch(e){setMessage(`Gagal membaca data: ${e?.message||'silakan refresh.'}`);}
     finally{setLoading(false);}
   }
