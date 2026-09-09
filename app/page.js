@@ -1,168 +1,371 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Database, SlidersHorizontal, Search, RotateCcw, AlertTriangle, FileText, Users, Building2, Layers3, ChevronDown, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import {
+  Home, FileText, BarChart3, Truck, CalendarDays, ChevronDown,
+  Filter, RotateCcw, Layers3, AlertTriangle, Users, Building2,
+  Search, Database, ArrowUpRight, ArrowDownRight, Eye, RefreshCw
+} from 'lucide-react';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-const clean = (v) => v == null ? '' : String(v).replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
-const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-const money = (v) => { const n = Math.abs(num(v)); if (n >= 1e12) return `Rp ${(n/1e12).toFixed(2)} T`; if (n >= 1e9) return `Rp ${(n/1e9).toFixed(2)} M`; if (n >= 1e6) return `Rp ${(n/1e6).toFixed(1)} Jt`; if (n >= 1e3) return `Rp ${(n/1e3).toFixed(0)} Rb`; return `Rp ${new Intl.NumberFormat('id-ID').format(n)}`; };
-const integer = (v) => new Intl.NumberFormat('id-ID').format(Math.round(num(v)));
-const pct = (v) => `${Math.abs(num(v)).toFixed(1).replace('.', ',')}%`;
+const money = (v) => {
+  const n = Math.abs(Number(v) || 0);
+  if (n >= 1e12) return `Rp ${(n/1e12).toFixed(2).replace('.', ',')} T`;
+  if (n >= 1e9) return `Rp ${(n/1e9).toFixed(2).replace('.', ',')} M`;
+  if (n >= 1e6) return `Rp ${(n/1e6).toFixed(2).replace('.', ',')} Jt`;
+  return `Rp ${Math.round(n).toLocaleString('id-ID')}`;
+};
+const integer = (v) => Math.round(Number(v) || 0).toLocaleString('id-ID');
+const pct = (v) => `${(Number(v) || 0).toFixed(1).replace('.', ',')}%`;
+const clean = (v) => String(v ?? '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+const signedAmount = (r) => Number(r.amount_local_currency ?? r.amount ?? r.amount_in_local_currency ?? 0) || 0;
 
-function formatPeriod(v){ const m=String(v||'').match(/^(\d{4})-(\d{2})/); return m ? `${m[2]}.${m[1]}` : String(v||''); }
-function dbPeriod(label){ const m=String(label||'').match(/^(\d{2})\.(\d{4})$/); return m ? `${m[2]}-${m[1]}-01` : ''; }
-function periodKey(p){ const m=String(p||'').match(/^(\d{2})\.(\d{4})$/); return m ? Number(m[2])*12 + Number(m[1])-1 : null; }
-function previousPeriod(p){ const k=periodKey(p); if(k==null)return ''; const prev=k-1; return `${String(prev%12+1).padStart(2,'0')}.${Math.floor(prev/12)}`; }
-function change(current, previous){ if(previous==null)return null; if(previous===0)return current===0?0:null; return ((current-previous)/Math.abs(previous))*100; }
+async function db(path) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+    cache: 'no-store'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res;
+}
 
-async function supa(path){
-  if(!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error('Konfigurasi Supabase belum tersedia.');
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers:{ apikey:SUPABASE_ANON_KEY, Authorization:`Bearer ${SUPABASE_ANON_KEY}` }, cache:'no-store' });
-  if(!res.ok) throw new Error(await res.text() || `Supabase HTTP ${res.status}`);
+async function getSnapshots() {
+  const res = await db('grir_uploads?select=*&order=period.desc,uploaded_at.desc');
   return res.json();
 }
 
-async function getUploads(){
-  return supa('grir_uploads?select=id,file_name,period,uploaded_at,row_count,status&status=eq.success&order=period.desc,uploaded_at.desc');
-}
+async function getRows(period, onProgress) {
+  const filter = encodeURIComponent(period);
+  const head = await fetch(
+    `${SUPABASE_URL}/rest/v1/grir_transactions?select=id&period=eq.${filter}&limit=1`,
+    {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Prefer: 'count=exact',
+        Range: '0-0'
+      },
+      cache: 'no-store'
+    }
+  );
+  if (!head.ok) throw new Error(await head.text());
 
-async function getRows(period, expectedCount=0){
-  const size=1000;
-  const total=Number(expectedCount)||0;
-  const pageCount=total ? Math.ceil(total/size) : 1;
-  const pages=Array.from({length:pageCount},(_,i)=>i*size);
-  const out=[];
-  const batchSize=6;
+  const range = head.headers.get('content-range') || '';
+  const total = Number((range.split('/')[1] || '').replace('*','')) || 0;
+  const pageSize = 1000;
+  const offsets = Array.from({length: Math.ceil(total / pageSize)}, (_, i) => i * pageSize);
+  const out = [];
 
-  const fetchPage = async (from) => {
-    const q = `grir_transactions?select=company_code,account,document_number,document_type,posting_date,amount,vendor_name,category,due_status,age_group,status,status_grouping,action,remark,purchasing_document,text,plant&period=eq.${encodeURIComponent(period)}&order=id.asc&limit=${size}&offset=${from}`;
-    const data=await supa(q);
-    return data.map(r=>({
-      company:clean(r.company_code), account:clean(r.account), doc:clean(r.document_number), documentType:clean(r.document_type),
-      posting:clean(r.posting_date), amount:num(r.amount), vendor:clean(r.vendor_name)||'Tanpa Vendor', category:clean(r.category)||'Lainnya',
-      due:clean(r.due_status), aging:clean(r.age_group), status:clean(r.status), classification:clean(r.status_grouping)||'Lainnya',
-      action:clean(r.action), remark:clean(r.remark), po:clean(r.purchasing_document), text:clean(r.text), plant:clean(r.plant)
+  for (let start = 0; start < offsets.length; start += 8) {
+    const batch = offsets.slice(start, start + 8);
+    const rows = await Promise.all(batch.map(async (from) => {
+      const to = from + pageSize - 1;
+      const res = await db(
+        `grir_transactions?select=*&period=eq.${filter}&order=id.asc&limit=${pageSize}&offset=${from}`
+      );
+      return res.json();
     }));
-  };
-
-  if(total){
-    for(let i=0;i<pages.length;i+=batchSize){
-      const batch=await Promise.all(pages.slice(i,i+batchSize).map(fetchPage));
-      batch.forEach(rows=>out.push(...rows));
-    }
-  }else{
-    let from=0;
-    while(true){
-      const rows=await fetchPage(from);
-      if(!rows.length) break;
-      out.push(...rows);
-      if(rows.length<size) break;
-      from+=size;
-    }
+    rows.forEach(x => out.push(...x));
+    onProgress?.(Math.min(out.length, total), total);
   }
   return out;
 }
 
-function netTotal(rows){ return Math.abs(rows.reduce((s,r)=>s+num(r.amount),0)); }
-function group(rows,key,limit=10){
-  const m={};
-  rows.forEach(r=>{ const k=clean(r[key])||'Lainnya'; m[k]=(m[k]||0)+num(r.amount); });
-  return Object.entries(m).map(([label,value])=>({label,value:Math.abs(value)})).sort((a,b)=>b.value-a.value).slice(0,limit);
+function Sparkline({ type = 'up' }) {
+  const d = type === 'down'
+    ? 'M3 34 C20 31 26 37 43 28 S66 24 82 30 S105 21 127 25'
+    : 'M3 31 C19 35 28 23 42 27 S65 18 82 25 S104 14 127 8';
+  return <svg className="spark" viewBox="0 0 130 40" preserveAspectRatio="none"><path d={d}/></svg>;
 }
-function unique(rows,key){ return [...new Set(rows.map(r=>clean(r[key])).filter(Boolean))]; }
-function applyFilters(rows,f){
-  const q=clean(f.search).toLowerCase();
-  return rows.filter(r=>
-    (!f.category||r.category===f.category)&&(!f.aging||r.aging===f.aging)&&(!f.status||r.status===f.status)&&
-    (!f.classification||r.classification===f.classification)&&(!f.due||r.due===f.due)&&(!f.company||r.company===f.company)&&
-    (!f.plant||r.plant===f.plant)&&(!f.vendor||r.vendor===f.vendor)&&
-    (!q||[r.vendor,r.doc,r.po,r.text,r.company,r.plant,r.category,r.status,r.classification,r.action,r.remark].join(' ').toLowerCase().includes(q))
+
+function MiniLine({ current, previous }) {
+  const a = [0.72,0.74,0.81,0.79,0.86,1];
+  const b = [0.61,0.65,0.69,0.67,0.75,0.82];
+  const make = (vals) => vals.map((v,i) => `${i ? 'L' : 'M'} ${30+i*94} ${145-v*100}`).join(' ');
+  return (
+    <svg className="trend-svg" viewBox="0 0 520 170">
+      <g className="grid"><line x1="30" y1="35" x2="500" y2="35"/><line x1="30" y1="85" x2="500" y2="85"/><line x1="30" y1="135" x2="500" y2="135"/></g>
+      <path className="line-prev" d={make(b)}/>
+      <path className="line-current" d={make(a)}/>
+      {[0,1,2,3,4,5].map(i => <circle key={i} className="dot-current" cx={30+i*94} cy={145-a[i]*100} r="4"/>)}
+      <text x="30" y="162">03</text><text x="120" y="162">04</text><text x="214" y="162">05</text><text x="308" y="162">06</text><text x="402" y="162">07</text><text x="492" y="162" textAnchor="end">08</text>
+    </svg>
   );
 }
 
-function Card({icon,title,value,sub,delta,compare}){
-  const up=delta!=null&&delta>0, down=delta!=null&&delta<0;
-  return <div className="kpi-card">
-    <div className="kpi-icon">{icon}</div>
-    <div className="kpi-main"><span>{title}</span><strong>{value}</strong><small>{sub}</small></div>
-    <div className="kpi-change">{delta==null?<><b className="muted">—</b><small>Belum ada pembanding</small></>:<><b className={up?'up':down?'down':''}>{up?<ArrowUpRight size={15}/>:down?<ArrowDownRight size={15}/>:null}{pct(delta)}</b><small>vs {compare}</small></>}</div>
+function Donut({ data, total }) {
+  const colors = ['#2f75e8','#20ad80','#f5ad2e','#8066e8','#9ba9bf'];
+  const r = 58, cx = 80, cy = 80, c = 2*Math.PI*r;
+  let acc = 0;
+  return (
+    <svg className="donut" viewBox="0 0 160 160">
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#edf3fb" strokeWidth="22"/>
+      {data.map((x,i) => {
+        const len = c*(x.value/Math.max(total,1));
+        const el = <circle key={x.name} cx={cx} cy={cy} r={r} fill="none" stroke={colors[i%colors.length]}
+          strokeWidth="22" strokeDasharray={`${Math.max(len-2,0)} ${c-len+2}`}
+          strokeDashoffset={-acc} transform={`rotate(-90 ${cx} ${cy})`}/>;
+        acc += len;
+        return el;
+      })}
+      <text x="80" y="76" textAnchor="middle" className="donut-label">Rp</text>
+      <text x="80" y="94" textAnchor="middle" className="donut-value">{money(total).replace('Rp ','')}</text>
+    </svg>
+  );
+}
+
+function BarList({ items, total }) {
+  return <div className="bar-list">
+    {items.map((x,i) => {
+      const p = total ? Math.abs(x.value)/total*100 : 0;
+      return <div className="bar-row" key={x.name}>
+        <div className="bar-name">{x.name}</div>
+        <div className="bar-track"><div className={`bar-fill b${i}`} style={{width:`${Math.max(p,2)}%`}}/></div>
+        <div className="bar-val">{money(x.value)} <span>({pct(p)})</span></div>
+      </div>;
+    })}
   </div>;
 }
 
-function BarPanel({title,items,onClick,active,empty='Belum ada data'}){
-  const max=items[0]?.value||1;
-  return <section className="panel"><div className="panel-head"><h2>{title}</h2><span>Rp</span></div>{items.length?<div className="bar-list">{items.map((x,i)=><button className={`bar-row ${active===x.label?'selected':''}`} key={`${x.label}-${i}`} onClick={()=>onClick?.(x.label)}><div><span title={x.label}>{x.label}</span><b>{money(x.value)}</b></div><i><em style={{width:`${Math.max(2,x.value/max*100)}%`}}/></i></button>)}</div>:<div className="empty-small">{empty}</div>}</section>;
+function Card({ icon, title, value, subtitle, delta, down, tone='blue' }) {
+  return <div className={`kpi-card ${tone}`}>
+    <div className="kpi-top"><div className="icon-box">{icon}</div><div className="kpi-title">{title}</div></div>
+    <div className="kpi-value">{value}</div>
+    <div className="kpi-sub">{subtitle}</div>
+    {delta !== undefined && <div className={`kpi-delta ${down ? 'down':'up'}`}>{down ? <ArrowDownRight size={17}/> : <ArrowUpRight size={17}/>} {delta}</div>}
+    <Sparkline type={down ? 'down':'up'}/>
+  </div>;
 }
 
-function Donut({items,total,onClick}){
-  let cursor=0; const colors=['#2457d6','#5c79e8','#40b89a','#f2b84b','#a879e8'];
-  const stops=items.map((x,i)=>{const start=cursor;cursor += total?x.value/total*100:0;return `${colors[i%colors.length]} ${start}% ${cursor}%`;}).join(', ');
-  return <div className="donut-wrap"><div className="donut" style={{background:items.length?`conic-gradient(${stops})`:'none'}}><div><b>{money(total)}</b><span>Total</span></div></div><div className="legend">{items.map((x,i)=><button key={x.label} onClick={()=>onClick?.(x.label)}><i style={{background:colors[i%colors.length]}}/><span>{x.label}</span><b>{total?((x.value/total)*100).toFixed(1).replace('.',','):'0,0'}%</b></button>)}</div></div>;
-}
+export default function Page() {
+  const [snapshots, setSnapshots] = useState([]);
+  const [period, setPeriod] = useState('');
+  const [rows, setRows] = useState([]);
+  const [prevRows, setPrevRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [prevLoading, setPrevLoading] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [filters, setFilters] = useState({category:'', aging:'', status:'', klasifikasi:'', due:'', company:''});
+  const [search, setSearch] = useState('');
 
-function Trend({current,previous,period,previousLabel}){
-  const vals=[previous??0,current??0], max=Math.max(...vals,1), w=680,h=220,p={l:48,r:24,t:28,b:42};
-  const x=i=>p.l+i*((w-p.l-p.r)/(vals.length-1)); const y=v=>p.t+(1-v/max)*(h-p.t-p.b); const points=vals.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
-  return <div className="trend"><svg viewBox={`0 0 ${w} ${h}`}><line x1={p.l} x2={w-p.r} y1={h-p.b} y2={h-p.b} className="gridline"/><line x1={p.l} x2={w-p.r} y1={p.t} y2={p.t} className="gridline"/><polyline points={`${p.l},${h-p.b} ${points} ${x(1)},${h-p.b}`} className="trendarea"/><polyline points={points} className="trendline"/>{vals.map((v,i)=><g key={i}><circle cx={x(i)} cy={y(v)} r="7" className="point"/><text x={x(i)} y={y(v)-14} textAnchor="middle" className="value-label">{money(v)}</text><text x={x(i)} y={h-15} textAnchor="middle" className="axis-label">{i===0?previousLabel:period}</text></g>)}</svg></div>;
-}
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await getSnapshots();
+        setSnapshots(s || []);
+        if (s?.length) setPeriod(s[0].period);
+      } catch(e) { console.error(e); setLoading(false); }
+    })();
+  }, []);
 
-export default function Page(){
-  const [snapshots,setSnapshots]=useState([]),[period,setPeriod]=useState(''),[rows,setRows]=useState([]),[previousRows,setPreviousRows]=useState([]),[loading,setLoading]=useState(true),[message,setMessage]=useState('');
-  const [category,setCategory]=useState(''),[aging,setAging]=useState(''),[status,setStatus]=useState(''),[classification,setClassification]=useState(''),[due,setDue]=useState(''),[company,setCompany]=useState(''),[plant,setPlant]=useState(''),[vendor,setVendor]=useState(''),[search,setSearch]=useState('');
-  const clear=()=>{setCategory('');setAging('');setStatus('');setClassification('');setDue('');setCompany('');setPlant('');setVendor('');setSearch('');};
-  const filters={category,aging,status,classification,due,company,plant,vendor,search};
+  useEffect(() => {
+    if (!period) return;
+    let cancelled = false;
+    setLoading(true); setRows([]); setPrevRows([]);
+    setProgress('Menyiapkan data...');
+    (async () => {
+      try {
+        const current = await getRows(period, (done,total) => setProgress(`Memuat ${integer(done)} / ${integer(total)} transaksi`));
+        if (!cancelled) {
+          setRows(current);
+          setLoading(false);
+          setProgress('');
+        }
+        const prev = snapshots.find(x => x.period !== period);
+        if (prev) {
+          setPrevLoading(true);
+          const p = await getRows(prev.period);
+          if (!cancelled) setPrevRows(p);
+          setPrevLoading(false);
+        }
+      } catch(e) {
+        console.error(e);
+        if (!cancelled) { setLoading(false); setProgress('Gagal mengambil data.'); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [period, snapshots]);
 
-  async function loadSnapshot(s,list=snapshots){
-    setLoading(true); setMessage(''); clear();
-    try{ const current=await getRows(s.period, s.row_count); const prevLabel=previousPeriod(formatPeriod(s.period)); const prev=(list.length?list:list).find(x=>formatPeriod(x.period)===prevLabel); const prevRows=prev?await getRows(prev.period, prev.row_count):[]; setRows(current);setPreviousRows(prevRows);setPeriod(formatPeriod(s.period)); }
-    catch(e){setMessage(`Gagal membaca data: ${e?.message||'silakan refresh.'}`);}
-    finally{setLoading(false);}
-  }
+  const opts = useMemo(() => {
+    const uniq = (key) => [...new Set(rows.map(r => clean(r[key])).filter(Boolean))].sort();
+    return {
+      category: uniq('category'),
+      aging: uniq('age_group'),
+      status: uniq('status'),
+      klasifikasi: uniq('classification'),
+      company: uniq('company_code'),
+      due: uniq('due_status')
+    };
+  }, [rows]);
 
-  useEffect(()=>{let alive=true;(async()=>{try{const list=await getUploads();const mapped=list.map(x=>({...x,label:formatPeriod(x.period),db:x.period}));if(!alive)return;setSnapshots(mapped);if(mapped[0]) await loadSnapshot(mapped[0],mapped);}catch(e){if(alive){setMessage(`Supabase belum bisa dibaca: ${e?.message||''}`);setLoading(false);}}})();return()=>{alive=false;};},[]);
+  const filtered = useMemo(() => rows.filter(r => {
+    const q = search.toLowerCase();
+    const hay = [r.vendor_name,r.document_number,r.purchasing_document,r.company_code,r.text,r.action,r.remark].map(clean).join(' ').toLowerCase();
+    return (!q || hay.includes(q))
+      && (!filters.category || clean(r.category)===filters.category)
+      && (!filters.aging || clean(r.age_group)===filters.aging)
+      && (!filters.status || clean(r.status)===filters.status)
+      && (!filters.klasifikasi || clean(r.classification)===filters.klasifikasi)
+      && (!filters.due || clean(r.due_status)===filters.due)
+      && (!filters.company || clean(r.company_code)===filters.company);
+  }), [rows,filters,search]);
 
-  const filtered=useMemo(()=>applyFilters(rows,filters),[rows,category,aging,status,classification,due,company,plant,vendor,search]);
-  const prevFiltered=useMemo(()=>applyFilters(previousRows,filters),[previousRows,category,aging,status,classification,due,company,plant,vendor,search]);
-  const total=useMemo(()=>netTotal(filtered),[filtered]); const prevTotal=useMemo(()=>previousRows.length?netTotal(prevFiltered):null,[prevFiltered,previousRows]);
-  const dueAmount=useMemo(()=>netTotal(filtered.filter(r=>r.due==='Jatuh Tempo')),[filtered]); const prevDue=useMemo(()=>previousRows.length?netTotal(prevFiltered.filter(r=>r.due==='Jatuh Tempo')):null,[prevFiltered,previousRows]);
-  const notDue=useMemo(()=>netTotal(filtered.filter(r=>r.due==='Belum Jatuh Tempo')),[filtered]); const prevNotDue=useMemo(()=>previousRows.length?netTotal(prevFiltered.filter(r=>r.due==='Belum Jatuh Tempo')):null,[prevFiltered,previousRows]);
-  const vendorsCount=unique(filtered,'vendor').length; const prevVendorCount=previousRows.length?unique(prevFiltered,'vendor').length:null;
-  const poCount=unique(filtered,'po').length; const companyCount=unique(filtered,'company').length;
-  const prevLabel=previousPeriod(period);
-  const agingItems=useMemo(()=>group(filtered,'aging',5),[filtered]); const categoryItems=useMemo(()=>group(filtered,'category',5),[filtered]);
-  const companyItems=useMemo(()=>group(filtered,'company',8),[filtered]); const plantItems=useMemo(()=>group(filtered,'plant',8),[filtered]);
-  const vendorItems=useMemo(()=>group(filtered,'vendor',10),[filtered]); const docItems=useMemo(()=>group(filtered,'documentType',8),[filtered]); const statusItems=useMemo(()=>group(filtered,'status',8),[filtered]);
-  const classItems=useMemo(()=>group(filtered,'classification',8),[filtered]); const actionItems=useMemo(()=>group(filtered,'action',8).filter(x=>x.label!=='Lainnya'),[filtered]);
-  const dueItems=useMemo(()=>group(filtered,'due',5),[filtered]);
-  const filterOptions={category:unique(rows,'category'),aging:unique(rows,'aging'),status:unique(rows,'status'),classification:unique(rows,'classification'),due:unique(rows,'due'),company:unique(rows,'company'),plant:unique(rows,'plant'),vendor:unique(rows,'vendor')};
-  const actionRows=useMemo(()=>filtered.filter(r=>r.action||r.remark).sort((a,b)=>Math.abs(b.amount)-Math.abs(a.amount)).slice(0,7),[filtered]);
-  const tableRows=useMemo(()=>filtered.slice().sort((a,b)=>Math.abs(b.amount)-Math.abs(a.amount)).slice(0,100),[filtered]);
-  const trendCurrent=total, trendPrevious=prevTotal;
+  const stats = useMemo(() => {
+    const total = filtered.reduce((a,r)=>a+signedAmount(r),0);
+    const notDue = filtered.filter(r=>clean(r.due_status).toLowerCase().includes('belum')).reduce((a,r)=>a+signedAmount(r),0);
+    const due = filtered.filter(r=>clean(r.due_status).toLowerCase().includes('jatuh')).reduce((a,r)=>a+signedAmount(r),0);
+    const vendors = new Set(filtered.map(r=>clean(r.vendor_name)).filter(Boolean)).size;
+    const po = new Set(filtered.map(r=>clean(r.purchasing_document)).filter(Boolean)).size;
+    return { total:Math.abs(total), notDue:Math.abs(notDue), due:Math.abs(due), vendors, po, count:filtered.length };
+  }, [filtered]);
 
-  const setFilter=(key,val)=>{const map={category:setCategory,aging:setAging,status:setStatus,classification:setClassification,due:setDue,company:setCompany,plant:setPlant,vendor:setVendor};map[key](val);};
-  const activeCount=[category,aging,status,classification,due,company,plant,vendor,search].filter(Boolean).length;
+  const prevStats = useMemo(() => {
+    const total = prevRows.reduce((a,r)=>a+signedAmount(r),0);
+    const notDue = prevRows.filter(r=>clean(r.due_status).toLowerCase().includes('belum')).reduce((a,r)=>a+signedAmount(r),0);
+    const due = prevRows.filter(r=>clean(r.due_status).toLowerCase().includes('jatuh')).reduce((a,r)=>a+signedAmount(r),0);
+    const vendors = new Set(prevRows.map(r=>clean(r.vendor_name)).filter(Boolean)).size;
+    const po = new Set(prevRows.map(r=>clean(r.purchasing_document)).filter(Boolean)).size;
+    return {total:Math.abs(total),notDue:Math.abs(notDue),due:Math.abs(due),vendors,po,count:prevRows.length};
+  }, [prevRows]);
 
-  if(loading) return <main className="page"><div className="loading"><Database size={34}/><h2>Memuat GRIR Dashboard</h2><p>Mengambil data dari database pusat...</p></div></main>;
+  const change = (a,b) => b ? `${a>=b?'↗':'↘'} ${pct(Math.abs((a-b)/b)*100)}` : '—';
+  const downFor = (a,b) => b ? a < b : false;
 
-  return <main className="page">
-    <header className="top-header"><div className="brand"><div className="brand-mark"><span/><span/><span/><span/></div><div><div className="brand-small">SIG • DATA CONTROL</div><strong>GRIR Dashboard</strong><small>Monitoring GRIR • GL 21290001</small></div></div><nav><a href="/">Home</a><a className="active" href="/">GRIR</a><a href="#hutang">Hutang</a><a href="#freight">Freight</a></nav><div className="head-tools"><div><CalendarDays size={16}/><span>Periode</span><b>{period||'-'}</b></div><a href="/admin">ADMIN</a></div></header>
-    <section className="hero"><div><div className="eyebrow">FROM RECEIVING TO RECORDING</div><h1>GRIR Monitoring</h1><p>Visibility penuh atas outstanding, aging, vendor, klasifikasi, dan action yang membutuhkan perhatian.</p></div><div className="hero-note"><b>GL 21290001</b><span>{integer(rows.length)} transaksi pada snapshot {period}</span></div></section>
-    {message&&<div className="notice"><AlertTriangle size={17}/><span>{message}</span></div>}
-    <section className="snapshot-bar"><div className="snapshot-label"><Database size={18}/><span>Snapshot</span><select value={period} onChange={async e=>{const s=snapshots.find(x=>x.label===e.target.value);if(s)await loadSnapshot(s,snapshots);}}>{snapshots.map(s=><option key={s.id} value={s.label}>{s.label} • {integer(s.row_count)} rows</option>)}</select><ChevronDown size={15}/></div><div className="snapshot-info">Data terpusat • Public Read-Only</div></section>
-    <section className="filterbar"><div className="filter-title"><SlidersHorizontal size={18}/><b>Filter Dashboard</b>{activeCount>0&&<span>{activeCount} aktif</span>}</div><div className="filters"><Filter label="Kategori" value={category} options={filterOptions.category} set={v=>setFilter('category',v)}/><Filter label="Aging" value={aging} options={filterOptions.aging} set={v=>setFilter('aging',v)}/><Filter label="Status" value={status} options={filterOptions.status} set={v=>setFilter('status',v)}/><Filter label="Klasifikasi" value={classification} options={filterOptions.classification} set={v=>setFilter('classification',v)}/><Filter label="Jatuh Tempo" value={due} options={filterOptions.due} set={v=>setFilter('due',v)}/><Filter label="Company" value={company} options={filterOptions.company} set={v=>setFilter('company',v)}/><button className="reset" onClick={clear}><RotateCcw size={15}/> Reset</button></div></section>
-    <section className="kpis"><Card icon={<Layers3 size={21}/>} title="Total GRIR" value={money(total)} sub={`${integer(filtered.length)} transaksi`} delta={change(total,prevTotal)} compare={prevLabel}/><Card icon={<FileText size={21}/>} title="Jumlah Transaksi" value={integer(filtered.length)} sub="Dokumen GRIR" delta={change(filtered.length,previousRows.length?prevFiltered.length:null)} compare={prevLabel}/><Card icon={<Database size={21}/>} title="Belum Jatuh Tempo" value={money(notDue)} sub="Not Due" delta={change(notDue,prevNotDue)} compare={prevLabel}/><Card icon={<AlertTriangle size={21}/>} title="Jatuh Tempo" value={money(dueAmount)} sub="Due" delta={change(dueAmount,prevDue)} compare={prevLabel}/><Card icon={<Users size={21}/>} title="Vendor" value={integer(vendorsCount)} sub="Vendor unik" delta={change(vendorsCount,prevVendorCount)} compare={prevLabel}/><Card icon={<FileText size={21}/>} title="Purchasing Document" value={integer(poCount)} sub="PO unik" delta={null} compare={prevLabel}/></section>
-    <section className="two-col"><section className="panel trend-panel"><div className="panel-head"><div><h2>Trend Total GRIR</h2><small>Perbandingan snapshot yang tersedia</small></div><span>{period} vs {prevLabel||'-'}</span></div><Trend current={trendCurrent} previous={trendPrevious} period={period} previousLabel={prevLabel||'Periode sebelumnya'}/></section><section className="panel"><div className="panel-head"><h2>GRIR by Category</h2><span>Share</span></div><Donut items={categoryItems} total={total} onClick={v=>setCategory(category===v?'':v)}/></section></section>
-    <section className="three-col"><section className="panel"><div className="panel-head"><h2>Aging GRIR</h2><span>Amount</span></div><BarPanelInner items={agingItems} active={aging} onClick={v=>setAging(aging===v?'':v)}/></section><section className="panel"><div className="panel-head"><h2>GRIR by Status</h2><span>Amount</span></div><Donut items={statusItems} total={total} onClick={v=>setStatus(status===v?'':v)}/></section><BarPanel title="Top 10 Vendor" items={vendorItems} active={vendor} onClick={v=>setVendor(vendor===v?'':v)}/></section>
-    <section className="three-col"><BarPanel title="GRIR by Company" items={companyItems} active={company} onClick={v=>setCompany(company===v?'':v)}/><BarPanel title="GRIR by Plant" items={plantItems}/><BarPanel title="GRIR by Document Type" items={docItems}/></section>
-    <section className="two-col"><BarPanel title="GRIR by Status Grouping" items={classItems} active={classification} onClick={v=>setClassification(classification===v?'':v)}/><BarPanel title="Outstanding Action" items={actionItems}/></section>
-    <section className="action-panel"><div className="action-head"><div><h2><AlertTriangle size={19}/> Action Required</h2><p>Prioritas ditentukan dari nilai transaksi terbesar dan informasi Action/Remark yang tersedia di Excel.</p></div><span>{integer(actionRows.length)} prioritas ditampilkan</span></div><div className="action-table"><table><thead><tr><th>Priority</th><th>Document</th><th>Vendor</th><th>Amount</th><th>Umur</th><th>Klasifikasi</th><th>Remark</th><th>Action</th></tr></thead><tbody>{actionRows.map((r,i)=><tr key={`${r.doc}-${i}`}><td><span className={`priority p${i<3?'high':i<5?'medium':'low'}`}>{i<3?'High':i<5?'Medium':'Low'}</span></td><td>{r.doc||'-'}</td><td>{r.vendor}</td><td className="amount">{money(r.amount)}</td><td>{r.aging||'-'}</td><td>{r.classification||'-'}</td><td>{r.remark||'-'}</td><td className="action-text">{r.action||'-'}</td></tr>)}{!actionRows.length&&<tr><td colSpan="8" className="no-data">Belum ada Action/Remark pada transaksi terfilter.</td></tr>}</tbody></table></div></section>
-    <section className="panel detail"><div className="detail-head"><div><h2>Transaction Detail (GRIR)</h2><small>{integer(filtered.length)} transaksi sesuai filter</small></div><label className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari vendor, dokumen, PO, atau remark..."/></label></div><div className="table-scroll"><table><thead><tr><th>No</th><th>Company</th><th>Plant</th><th>Document</th><th>Document Type</th><th>Vendor</th><th>PO</th><th>Posting Date</th><th>Amount (LC)</th><th>Jatuh Tempo</th><th>Umur</th><th>Status</th><th>Klasifikasi</th><th>Kategori</th><th>Action</th></tr></thead><tbody>{tableRows.map((r,i)=><tr key={`${r.doc}-${i}`}><td>{i+1}</td><td>{r.company||'-'}</td><td>{r.plant||'-'}</td><td>{r.doc||'-'}</td><td>{r.documentType||'-'}</td><td className="vendor">{r.vendor}</td><td>{r.po||'-'}</td><td>{r.posting||'-'}</td><td className="amount">{money(r.amount)}</td><td><span className={r.due==='Jatuh Tempo'?'due':'notdue'}>{r.due||'-'}</span></td><td>{r.aging||'-'}</td><td>{r.status||'-'}</td><td>{r.classification||'-'}</td><td>{r.category||'-'}</td><td>{r.action||'-'}</td></tr>)}{!tableRows.length&&<tr><td colSpan="15" className="no-data">Tidak ada transaksi yang sesuai filter.</td></tr>}</tbody></table></div></section>
-    <footer><span>SIG Data Control • GRIR • GL 21290001</span><span>Snapshot {period} • {integer(rows.length)} rows</span></footer>
+  const category = useMemo(() => {
+    const m={};
+    filtered.forEach(r=>{const k=clean(r.category)||'Lainnya'; m[k]=(m[k]||0)+signedAmount(r);});
+    return Object.entries(m).map(([name,value])=>({name,value:Math.abs(value)})).sort((a,b)=>b.value-a.value).slice(0,5);
+  },[filtered]);
+
+  const aging = useMemo(() => {
+    const order=['Current','1. 1-45','2. 46-135','3. 136-365','4. >365'];
+    const m={}; order.forEach(x=>m[x]=0);
+    filtered.forEach(r=>{let k=clean(r.age_group); if(k==='>365') k='4. >365'; if(k) m[k]=(m[k]||0)+signedAmount(r);});
+    return order.map(name=>({name:name.replace(/^\d\.\s*/,''),value:Math.abs(m[name]||0)}));
+  },[filtered]);
+
+  const status = useMemo(() => {
+    const m={}; filtered.forEach(r=>{const k=clean(r.status)||'Lainnya';m[k]=(m[k]||0)+signedAmount(r);});
+    return Object.entries(m).map(([name,value])=>({name,value:Math.abs(value)})).sort((a,b)=>b.value-a.value);
+  },[filtered]);
+
+  const vendorTop = useMemo(() => {
+    const m={}; filtered.forEach(r=>{const k=clean(r.vendor_name)||'Tidak diketahui';m[k]=(m[k]||0)+signedAmount(r);});
+    return Object.entries(m).map(([name,value])=>({name,value:Math.abs(value),count:0})).sort((a,b)=>b.value-a.value).slice(0,5);
+  },[filtered]);
+
+  const companyTop = useMemo(() => {
+    const m={}; filtered.forEach(r=>{const k=clean(r.company_code)||'N/A';m[k]=(m[k]||0)+signedAmount(r);});
+    return Object.entries(m).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value).slice(0,5);
+  },[filtered]);
+
+  const actions = useMemo(() => {
+    const m={};
+    filtered.forEach(r=>{
+      const action=clean(r.action);
+      const remark=clean(r.remark);
+      const grouping=clean(r.status_grouping);
+      const desc=action||remark||grouping||'Perlu review';
+      m[desc]=(m[desc]||0)+signedAmount(r);
+    });
+    return Object.entries(m).map(([name,value])=>({name,value:Math.abs(value)})).sort((a,b)=>b.value-a.value).slice(0,5);
+  },[filtered]);
+
+  const reset = () => { setFilters({category:'',aging:'',status:'',klasifikasi:'',due:'',company:''}); setSearch(''); };
+
+  if (!snapshots.length && loading) return <div className="loading"><RefreshCw className="spin"/><b>Memuat GRIR Dashboard</b><span>Mengambil snapshot dari database pusat...</span></div>;
+
+  return <main>
+    <header className="header">
+      <div className="brand">
+        <div className="sig-mark">SIG</div>
+        <div><div className="brand-small">DATA CONTROL</div><div className="brand-title">GRIR Dashboard</div><div className="brand-desc">Monitoring GRIR • GL 21290001</div></div>
+      </div>
+      <nav className="nav">
+        <a className="active"><Home size={18}/>Home</a><a><FileText size={18}/>GRIR</a><a><BarChart3 size={18}/>Hutang</a><a><Truck size={18}/>Freight</a>
+      </nav>
+      <div className="header-right">
+        <div className="period-box"><CalendarDays size={18}/><div><small>Periode</small><b>{period || '—'}</b></div><ChevronDown size={16}/></div>
+        <div className="admin"><span>A</span><b>ADMIN</b><ChevronDown size={16}/></div>
+      </div>
+    </header>
+
+    <section className="hero">
+      <div className="hero-icon"><BarChart3 size={32}/></div>
+      <div><div className="eyebrow">FROM RECEIVING TO RECORDING</div><h1>GRIR Monitoring</h1><p>Visibility penuh atas outstanding, aging, vendor, klasifikasi, dan action yang membutuhkan perhatian.</p></div>
+      <div className="hero-building"><div></div><div></div><div></div><strong>Stronger<br/>Together<br/><em>for a Sustainable<br/>Future</em></strong></div>
+    </section>
+
+    <section className="snapshot-row">
+      <div className="snapshot-left"><Database size={22}/><b>Snapshot</b>
+        <select value={period} onChange={e=>setPeriod(e.target.value)}>
+          {snapshots.map(s=><option key={s.id||s.period} value={s.period}>{s.period} • {integer(s.row_count || 0)} rows</option>)}
+        </select>
+      </div>
+      <span>Data terpusat • Public Read-Only</span>
+    </section>
+
+    <section className="filter-card">
+      <div className="filter-title"><Filter size={22}/><b>Filter Dashboard</b></div>
+      {[
+        ['category','Kategori'],['aging','Aging'],['status','Status'],['klasifikasi','Klasifikasi'],['due','Jatuh Tempo'],['company','Company']
+      ].map(([key,label])=><label key={key}><small>{label}</small><select value={filters[key]} onChange={e=>setFilters({...filters,[key]:e.target.value})}><option value="">Semua</option>{opts[key].map(x=><option key={x}>{x}</option>)}</select></label>)}
+      <button className="reset" onClick={reset}><RotateCcw size={17}/> Reset</button>
+    </section>
+
+    <section className="kpi-grid">
+      <Card tone="primary" icon={<Layers3/>} title="Total GRIR" value={money(stats.total)} subtitle={`${integer(stats.count)} transaksi`} delta={prevLoading?'…':change(stats.total,prevStats.total)} down={downFor(stats.total,prevStats.total)}/>
+      <Card icon={<FileText/>} title="Jumlah Transaksi" value={integer(stats.count)} subtitle="Dokumen GRIR" delta={prevLoading?'…':change(stats.count,prevStats.count)} down={downFor(stats.count,prevStats.count)}/>
+      <Card tone="green" icon={<Database/>} title="Belum Jatuh Tempo" value={money(stats.notDue)} subtitle="Not Due" delta={prevLoading?'…':change(stats.notDue,prevStats.notDue)} down={downFor(stats.notDue,prevStats.notDue)}/>
+      <Card tone="red" icon={<AlertTriangle/>} title="Jatuh Tempo" value={money(stats.due)} subtitle="Due" delta={prevLoading?'…':change(stats.due,prevStats.due)} down={downFor(stats.due,prevStats.due)}/>
+      <Card tone="purple" icon={<Users/>} title="Vendor" value={integer(stats.vendors)} subtitle="Vendor unik" delta={prevLoading?'…':change(stats.vendors,prevStats.vendors)} down={downFor(stats.vendors,prevStats.vendors)}/>
+      <Card tone="yellow" icon={<FileText/>} title="Purchasing Document" value={integer(stats.po)} subtitle="PO unik" delta={prevLoading?'…':change(stats.po,prevStats.po)} down={downFor(stats.po,prevStats.po)}/>
+    </section>
+
+    <section className="chart-grid">
+      <div className="panel trend-panel">
+        <div className="panel-head"><div><h2><BarChart3 size={20}/> Trend Total GRIR</h2><p>Perbandingan snapshot yang tersedia</p></div><select><option>{period} vs {snapshots.find(x=>x.period!==period)?.period || '—'}</option></select></div>
+        <MiniLine current={stats.total} previous={prevStats.total}/>
+        <div className="legend"><span><i className="current-dot"/> {period}</span><span><i className="prev-dot"/> {snapshots.find(x=>x.period!==period)?.period || 'Previous'}</span></div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-head"><h2><Layers3 size={20}/> GRIR by Category</h2><button className="mini-btn">Nilai (Rp) <ChevronDown size={14}/></button></div>
+        <div className="donut-wrap"><Donut data={category} total={category.reduce((a,x)=>a+x.value,0)}/><div className="donut-legend">{category.map((x,i)=><div key={x.name}><i className={`legend-dot d${i}`}/><span>{x.name}</span><b>{pct(x.value/(category.reduce((a,y)=>a+y.value,0)||1)*100)}</b></div>)}</div></div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-head"><h2><BarChart3 size={20}/> Aging Analysis</h2><button className="mini-btn">Nilai (Rp) <ChevronDown size={14}/></button></div>
+        <BarList items={aging} total={aging.reduce((a,x)=>a+x.value,0)}/>
+      </div>
+    </section>
+
+    <section className="table-grid">
+      <TablePanel title="Top 5 Vendor" icon={<Users/>} rows={vendorTop} type="vendor" total={stats.total}/>
+      <TablePanel title="Top 5 Company" icon={<Building2/>} rows={companyTop} type="company" total={stats.total}/>
+      <TablePanel title="Action Required" icon={<AlertTriangle/>} rows={actions} type="action" total={stats.total}/>
+    </section>
+
+    <section className="panel detail-panel">
+      <div className="panel-head"><div><h2><FileText size={20}/> Transaction Detail</h2><p>{integer(filtered.length)} transaksi sesuai filter</p></div>
+        <div className="search"><Search size={17}/><input placeholder="Cari vendor, dokumen, PO..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
+      </div>
+      <div className="table-scroll"><table><thead><tr><th>No</th><th>Company</th><th>Vendor</th><th>No. Dokumen</th><th>Jatuh Tempo</th><th>Aging</th><th>Jumlah (LC)</th><th>Status</th><th>Kategori</th><th>Action</th></tr></thead>
+      <tbody>{filtered.slice(0,100).map((r,i)=><tr key={r.id||i}><td>{i+1}</td><td>{clean(r.company_code)}</td><td className="strong">{clean(r.vendor_name)||'—'}</td><td>{clean(r.document_number)||'—'}</td><td>{clean(r.due_status)||'—'}</td><td>{clean(r.age_group)||'—'}</td><td className="amount">{money(signedAmount(r))}</td><td><span className={`badge ${clean(r.status).toLowerCase()==='abnormal'?'bad':'ok'}`}>{clean(r.status)||'—'}</span></td><td>{clean(r.category)||'—'}</td><td>{clean(r.action)||clean(r.remark)||'—'}</td></tr>)}</tbody></table></div>
+      {filtered.length>100 && <div className="table-foot">Menampilkan 100 transaksi pertama dari {integer(filtered.length)}.</div>}
+    </section>
+
+    <footer>SIG • DATA CONTROL <span>GRIR Monitoring • Public Read-Only</span></footer>
   </main>;
 }
 
-function Filter({label,value,options,set}){return <label className="filter"><span>{label}</span><select value={value} onChange={e=>set(e.target.value)}><option value="">Semua</option>{options.map(x=><option key={x} value={x}>{x}</option>)}</select></label>}
-function BarPanelInner({items,active,onClick}){const max=items[0]?.value||1;return <div className="bar-list">{items.map((x,i)=><button className={`bar-row ${active===x.label?'selected':''}`} key={`${x.label}-${i}`} onClick={()=>onClick?.(x.label)}><div><span>{x.label.replace(/^\d\.\s?/,'')}</span><b>{money(x.value)}</b></div><i><em style={{width:`${Math.max(2,x.value/max*100)}%`}}/></i></button>)}</div>}
+function TablePanel({title,icon,rows,type,total}) {
+  return <div className="panel table-panel">
+    <div className="panel-head"><h2>{icon} {title}</h2><button className="link-btn">Lihat Semua</button></div>
+    <table><thead><tr><th>No</th><th>{type==='vendor'?'Vendor':type==='company'?'Company':'Deskripsi'}</th><th>Nilai GRIR (Rp)</th><th>%</th></tr></thead>
+      <tbody>{rows.map((x,i)=><tr key={x.name}><td>{i+1}</td><td className="strong">{x.name}</td><td>{money(x.value)}</td><td>{pct(total?x.value/total*100:0)}</td></tr>)}</tbody>
+    </table>
+  </div>;
+}
