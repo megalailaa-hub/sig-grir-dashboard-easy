@@ -202,6 +202,7 @@ export default function Page() {
   const [filters, setFilters] = useState({category:'', aging:'', status:'', klasifikasi:'', due:'', company:''});
   const [search, setSearch] = useState('');
   const [activeModule, setActiveModule] = useState('home');
+  const [adminOpen, setAdminOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -353,7 +354,34 @@ export default function Page() {
       <header className="header">
         <div className="brand"><div className="sig-mark">SIG</div><div><div className="brand-small">DATA CONTROL</div><div className="brand-title">Monitoring Akun Hutang dan GRIR</div><div className="brand-desc">Satu dashboard untuk memantau GRIR, Hutang, dan Freight</div></div></div>
         <nav className="nav"><button className="active"><Home size={18}/>Home</button><button onClick={()=>setActiveModule('grir')}><FileText size={18}/>GRIR</button><button onClick={()=>setActiveModule('hutang')}><BarChart3 size={18}/>Hutang</button><button onClick={()=>setActiveModule('freight')}><Truck size={18}/>Freight</button></nav>
-        <div className="header-right"><div className="period-home"><CalendarDays size={17}/><span>Periode</span><b>{period || '—'}</b></div><div className="admin-home"><span>A</span><b>ADMIN</b><ChevronDown size={15}/></div></div>
+        <div className="header-right"><div className="period-home"><CalendarDays size={17}/><span>Periode</span><b>{period || '—'}</b></div><div className="admin-wrap">
+          <button className="admin-home" type="button" onClick={() => setAdminOpen(v => !v)}>
+            <span className="admin-avatar">A</span>
+            <b>ADMIN</b>
+            <ChevronDown size={16} className={adminOpen ? "admin-chevron open" : "admin-chevron"} />
+          </button>
+          {adminOpen && (
+            <div className="admin-dropdown">
+              <div className="admin-dropdown-head">
+                <span className="admin-avatar small">A</span>
+                <div><b>ADMIN</b><small>Administrator</small></div>
+              </div>
+              <button type="button" onClick={() => { setActiveModule('home'); setAdminOpen(false); }}>
+                <User size={16}/> Profile
+              </button>
+              <button type="button" onClick={() => { setActiveModule('home'); setAdminOpen(false); }}>
+                <Settings size={16}/> Account Settings
+              </button>
+              <button type="button" onClick={() => { setActiveModule('home'); setAdminOpen(false); }}>
+                <Upload size={16}/> Admin Panel / Upload Data
+              </button>
+              <div className="admin-divider"/>
+              <button type="button" className="logout-item" onClick={() => setAdminOpen(false)}>
+                <LogOut size={16}/> Logout
+              </button>
+            </div>
+          )}
+        </div></div>
       </header>
       <section className="home-hero"><div><div className="home-kicker">DATA CONTROL</div><h1>Monitoring Akun Hutang dan GRIR</h1><p>Satu dashboard untuk memantau GRIR, Hutang, dan Freight secara terintegrasi.</p></div><div className="home-tagline">Stronger<br/>Together<br/><small>for a Sustainable Future</small></div></section>
       <section className="module-cards">
