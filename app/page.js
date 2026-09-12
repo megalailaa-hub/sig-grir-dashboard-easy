@@ -346,13 +346,13 @@ export default function Page() {
 
   const reset = () => { setFilters({category:'',aging:'',status:'',klasifikasi:'',due:'',company:''}); setSearch(''); };
 
-  if (!snapshots.length && loading) return <div className="loading"><RefreshCw className="spin"/><b>Memuat GRIR Dashboard</b><span>Mengambil snapshot dari database pusat...</span></div>;
+  if (!snapshots.length && loading) return <div className="loading"><RefreshCw className="spin"/><b>Memuat Monitoring Akun Hutang dan GRIR</b><span>Mengambil snapshot dari database pusat...</span></div>;
 
   return <main>
     <header className="header">
       <div className="brand">
         <div className="sig-mark">SIG</div>
-        <div><div className="brand-small">DATA CONTROL</div><div className="brand-title">GRIR Dashboard</div><div className="brand-desc">Monitoring GRIR • GL 21290001</div></div>
+        <div><div className="brand-small">DATA CONTROL</div><div className="brand-title">Monitoring Akun Hutang dan GRIR</div><div className="brand-desc">Monitoring Akun Hutang dan GRIR • GL 21290001</div></div>
       </div>
       <nav className="nav">
         <a className="active"><Home size={18}/>Home</a><a><FileText size={18}/>GRIR</a><a><BarChart3 size={18}/>Hutang</a><a><Truck size={18}/>Freight</a>
