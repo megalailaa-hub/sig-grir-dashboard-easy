@@ -292,21 +292,30 @@ export default function Page() {
   },[filtered]);
 
   const aging = useMemo(() => {
-    // Source values are stored like "1. Current", "2. 1-45", etc.
-    // Normalize the numeric prefix before grouping.
-    const order=['Current','1-45','46-135','136-365','>365'];
-    const m={}; order.forEach(x=>m[x]=0);
-    filtered.forEach(r=>{
-      let k=clean(field(r,'age_group','aging','umur_hutang'));
-      k=k.replace(/^\\d+\\.\\s*/, '').replace(/\\s+/g,' ').trim();
-      if(k==='> 365') k='>365';
-      if(k==='1 - 45') k='1-45';
-      if(k==='46 - 135') k='46-135';
-      if(k==='136 - 365') k='136-365';
-      if(k) m[k]=(m[k]||0)+signedAmount(r);
+    const order = ['Current','1-45','46-135','136-365','>365'];
+    const m = Object.fromEntries(order.map(x => [x, 0]));
+
+    const normalizeAging = (value) => {
+      const s = clean(value).toLowerCase();
+      if (!s) return '';
+      if (s.includes('current')) return 'Current';
+      if (s.includes('1-45') || s.includes('1 - 45')) return '1-45';
+      if (s.includes('46-135') || s.includes('46 - 135')) return '46-135';
+      if (s.includes('136-365') || s.includes('136 - 365')) return '136-365';
+      if (s.includes('>365') || s.includes('> 365')) return '>365';
+      return '';
+    };
+
+    filtered.forEach(r => {
+      const key = normalizeAging(field(r,'age_group','aging','umur_hutang'));
+      if (key) m[key] += signedAmount(r);
     });
-    return order.map(name=>({name,value:Math.abs(m[name]||0)}));
-  },[filtered]);
+
+    return order.map(name => ({
+      name,
+      value: Math.abs(m[name])
+    }));
+  }, [filtered]);
 
   const status = useMemo(() => {
     const m={}; filtered.forEach(r=>{const k=clean(r.status)||'Lainnya';m[k]=(m[k]||0)+signedAmount(r);});
