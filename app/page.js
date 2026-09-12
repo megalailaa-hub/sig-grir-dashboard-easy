@@ -292,10 +292,20 @@ export default function Page() {
   },[filtered]);
 
   const aging = useMemo(() => {
-    const order=['Current','1. 1-45','2. 46-135','3. 136-365','4. >365'];
+    // Source values are stored like "1. Current", "2. 1-45", etc.
+    // Normalize the numeric prefix before grouping.
+    const order=['Current','1-45','46-135','136-365','>365'];
     const m={}; order.forEach(x=>m[x]=0);
-    filtered.forEach(r=>{let k=clean(r.age_group); if(k==='>365') k='4. >365'; if(k) m[k]=(m[k]||0)+signedAmount(r);});
-    return order.map(name=>({name:name.replace(/^\d\.\s*/,''),value:Math.abs(m[name]||0)}));
+    filtered.forEach(r=>{
+      let k=clean(field(r,'age_group','aging','umur_hutang'));
+      k=k.replace(/^\\d+\\.\\s*/, '').replace(/\\s+/g,' ').trim();
+      if(k==='> 365') k='>365';
+      if(k==='1 - 45') k='1-45';
+      if(k==='46 - 135') k='46-135';
+      if(k==='136 - 365') k='136-365';
+      if(k) m[k]=(m[k]||0)+signedAmount(r);
+    });
+    return order.map(name=>({name,value:Math.abs(m[name]||0)}));
   },[filtered]);
 
   const status = useMemo(() => {
