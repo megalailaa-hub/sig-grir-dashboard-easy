@@ -201,6 +201,7 @@ export default function Page() {
   const [progress, setProgress] = useState('');
   const [filters, setFilters] = useState({category:'', aging:'', status:'', klasifikasi:'', due:'', company:''});
   const [search, setSearch] = useState('');
+  const [activeModule, setActiveModule] = useState('home');
 
   useEffect(() => {
     (async () => {
@@ -346,6 +347,36 @@ export default function Page() {
 
   const reset = () => { setFilters({category:'',aging:'',status:'',klasifikasi:'',due:'',company:''}); setSearch(''); };
 
+  if (activeModule === 'home') {
+    const homeTotal = Math.abs(stats.total);
+    return <main>
+      <header className="header">
+        <div className="brand"><div className="sig-mark">SIG</div><div><div className="brand-small">DATA CONTROL</div><div className="brand-title">Monitoring Akun Hutang dan GRIR</div><div className="brand-desc">Satu dashboard untuk memantau GRIR, Hutang, dan Freight</div></div></div>
+        <nav className="nav"><button className="active"><Home size={18}/>Home</button><button onClick={()=>setActiveModule('grir')}><FileText size={18}/>GRIR</button><button onClick={()=>setActiveModule('hutang')}><BarChart3 size={18}/>Hutang</button><button onClick={()=>setActiveModule('freight')}><Truck size={18}/>Freight</button></nav>
+        <div className="header-right"><div className="period-home"><CalendarDays size={17}/><span>Periode</span><b>{period || '—'}</b></div><div className="admin-home"><span>A</span><b>ADMIN</b><ChevronDown size={15}/></div></div>
+      </header>
+      <section className="home-hero"><div><div className="home-kicker">DATA CONTROL</div><h1>Monitoring Akun Hutang dan GRIR</h1><p>Satu dashboard untuk memantau GRIR, Hutang, dan Freight secara terintegrasi.</p></div><div className="home-tagline">Stronger<br/>Together<br/><small>for a Sustainable Future</small></div></section>
+      <section className="module-cards">
+        <button className="module-card blue" onClick={()=>setActiveModule('grir')}><div className="module-icon"><FileText size={24}/></div><div><span>Total GRIR</span><strong>{money(homeTotal)}</strong><small>{integer(filtered.length)} transaksi</small></div><ArrowUpRight size={22}/></button>
+        <button className="module-card green" onClick={()=>setActiveModule('hutang')}><div className="module-icon"><Layers3 size={24}/></div><div><span>Total Hutang</span><strong>—</strong><small>Data belum tersedia</small></div><ArrowUpRight size={22}/></button>
+        <button className="module-card purple" onClick={()=>setActiveModule('freight')}><div className="module-icon"><Truck size={24}/></div><div><span>Total Freight</span><strong>—</strong><small>Data belum tersedia</small></div><ArrowUpRight size={22}/></button>
+        <div className="module-card overall"><div className="module-icon"><Layers3 size={24}/></div><div><span>Total Data Tersedia</span><strong>{money(homeTotal)}</strong><small>GRIR aktif • Hutang/Freight menunggu data</small></div></div>
+      </section>
+      <section className="home-snapshot"><div><Database size={21}/><div><span>Snapshot GRIR</span><b>{period || '—'} • {integer(rows.length)} rows</b></div></div><span>Public Read-Only</span></section>
+      <section className="home-panels">
+        <div className="panel"><div className="panel-head"><div><h2><BarChart3 size={20}/> Trend GRIR</h2><p>Perbandingan dengan periode sebelumnya</p></div></div><MiniLine current={stats.total} previous={prevStats.total}/></div>
+        <div className="panel"><div className="panel-head"><h2><Layers3 size={20}/> GRIR by Category</h2></div><div className="donut-wrap"><Donut data={category} total={category.reduce((a,x)=>a+x.value,0)}/><div className="donut-legend">{category.map((x,i)=><div key={x.name}><i className={\`legend-dot d${i}\`}/><span>{x.name}</span><b>{pct(x.value/(category.reduce((a,y)=>a+y.value,0)||1)*100)}</b></div>)}</div></div></div>
+        <div className="panel"><div className="panel-head"><h2><BarChart3 size={20}/> Aging Analysis</h2></div><BarList items={aging} total={aging.reduce((a,x)=>a+x.value,0)}/></div>
+      </section>
+      <section className="home-takeaway"><AlertTriangle size={22}/><div><b>Key Takeaways</b><span>Data GRIR {period || ''} menunjukkan total {money(homeTotal)} dengan {integer(rows.length)} transaksi. Hutang dan Freight belum tersedia di database pusat.</span></div><button onClick={()=>setActiveModule('grir')}>Lihat Detail GRIR <ArrowUpRight size={17}/></button></section>
+    </main>;
+  }
+
+  if (activeModule === 'hutang' || activeModule === 'freight') {
+    const title = activeModule === 'hutang' ? 'Hutang' : 'Freight';
+    return <main><header className="header"><div className="brand"><div className="sig-mark">SIG</div><div><div className="brand-small">DATA CONTROL</div><div className="brand-title">Monitoring Akun Hutang dan GRIR</div><div className="brand-desc">{title} Monitoring</div></div></div><nav className="nav"><button onClick={()=>setActiveModule('home')}><Home size={18}/>Home</button><button onClick={()=>setActiveModule('grir')}><FileText size={18}/>GRIR</button><button className={activeModule==='hutang'?'active':''} onClick={()=>setActiveModule('hutang')}><BarChart3 size={18}/>Hutang</button><button className={activeModule==='freight'?'active':''} onClick={()=>setActiveModule('freight')}><Truck size={18}/>Freight</button></nav></header><section className="empty-module"><div className="module-icon">{activeModule==='hutang'?<Layers3 size={32}/>:<Truck size={32}/>}</div><h1>{title}</h1><h2>Data belum tersedia</h2><p>Snapshot {title} belum dimasukkan ke database pusat SIG Data Control.</p><button onClick={()=>setActiveModule('home')}>← Kembali ke Home</button></section></main>;
+  }
+
   if (!snapshots.length && loading) return <div className="loading"><RefreshCw className="spin"/><b>Memuat Monitoring Akun Hutang dan GRIR</b><span>Mengambil snapshot dari database pusat...</span></div>;
 
   return <main>
@@ -355,7 +386,7 @@ export default function Page() {
         <div><div className="brand-small">DATA CONTROL</div><div className="brand-title">Monitoring Akun Hutang dan GRIR</div><div className="brand-desc">Monitoring Akun Hutang dan GRIR • GL 21290001</div></div>
       </div>
       <nav className="nav">
-        <a className="active"><Home size={18}/>Home</a><a><FileText size={18}/>GRIR</a><a><BarChart3 size={18}/>Hutang</a><a><Truck size={18}/>Freight</a>
+        <button className={activeModule==='home'?'active':''} onClick={()=>setActiveModule('home')}><Home size={18}/>Home</button><button className="active" onClick={()=>setActiveModule('grir')}><FileText size={18}/>GRIR</button><button onClick={()=>setActiveModule('hutang')}><BarChart3 size={18}/>Hutang</button><button onClick={()=>setActiveModule('freight')}><Truck size={18}/>Freight</button>
       </nav>
       <div className="header-right">
         <div className="period-box"><CalendarDays size={18}/><div><small>Periode</small><b>{period || '—'}</b></div><ChevronDown size={16}/></div>
