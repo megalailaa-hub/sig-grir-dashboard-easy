@@ -122,7 +122,7 @@ function BarList({ items, total }) {
       const p = total ? Math.abs(x.value)/total*100 : 0;
       return <div className="bar-row" key={x.name}>
         <div className="bar-name">{x.name}</div>
-        <div className="bar-track"><div className={`bar-fill b${i}`} style={{width:`${Math.max(p,2)}%`}}/></div>
+        <div className="bar-track"><div className={'bar-fill b'+i} style={{width: Math.max(p,2) + '%'}}/></div>
         <div className="bar-val">{money(x.value)} <span>({pct(p)})</span></div>
       </div>;
     })}
@@ -130,11 +130,11 @@ function BarList({ items, total }) {
 }
 
 function Card({ icon, title, value, subtitle, delta, down, tone='blue' }) {
-  return <div className={`kpi-card ${tone}`}>
+  return <div className={'kpi-card '+tone}>
     <div className="kpi-top"><div className="icon-box">{icon}</div><div className="kpi-title">{title}</div></div>
     <div className="kpi-value">{value}</div>
     <div className="kpi-sub">{subtitle}</div>
-    {delta !== undefined && <div className={`kpi-delta ${down ? 'down':'up'}`}>{down ? <ArrowDownRight size={17}/> : <ArrowUpRight size={17}/>} {delta}</div>}
+    {delta !== undefined && <div className={'kpi-delta '+(down ? 'down' : 'up')}>{down ? <ArrowDownRight size={17}/> : <ArrowUpRight size={17}/>} {delta}</div>}
     <Sparkline type={down ? 'down':'up'}/>
   </div>;
 }
@@ -365,7 +365,7 @@ export default function Page() {
       <section className="home-snapshot"><div><Database size={21}/><div><span>Snapshot GRIR</span><b>{period || '—'} • {integer(rows.length)} rows</b></div></div><span>Public Read-Only</span></section>
       <section className="home-panels">
         <div className="panel"><div className="panel-head"><div><h2><BarChart3 size={20}/> Trend GRIR</h2><p>Perbandingan dengan periode sebelumnya</p></div></div><MiniLine current={stats.total} previous={prevStats.total}/></div>
-        <div className="panel"><div className="panel-head"><h2><Layers3 size={20}/> GRIR by Category</h2></div><div className="donut-wrap"><Donut data={category} total={category.reduce((a,x)=>a+x.value,0)}/><div className="donut-legend">{category.map((x,i)=><div key={x.name}><i className={\`legend-dot d${i}\`}/><span>{x.name}</span><b>{pct(x.value/(category.reduce((a,y)=>a+y.value,0)||1)*100)}</b></div>)}</div></div></div>
+        <div className="panel"><div className="panel-head"><h2><Layers3 size={20}/> GRIR by Category</h2></div><div className="donut-wrap"><Donut data={category} total={category.reduce((a,x)=>a+x.value,0)}/><div className="donut-legend">{category.map((x,i)=><div key={x.name}><i className={'legend-dot d'+i}/><span>{x.name}</span><b>{pct(x.value/(category.reduce((a,y)=>a+y.value,0)||1)*100)}</b></div>)}</div></div></div>
         <div className="panel"><div className="panel-head"><h2><BarChart3 size={20}/> Aging Analysis</h2></div><BarList items={aging} total={aging.reduce((a,x)=>a+x.value,0)}/></div>
       </section>
       <section className="home-takeaway"><AlertTriangle size={22}/><div><b>Key Takeaways</b><span>Data GRIR {period || ''} menunjukkan total {money(homeTotal)} dengan {integer(rows.length)} transaksi. Hutang dan Freight belum tersedia di database pusat.</span></div><button onClick={()=>setActiveModule('grir')}>Lihat Detail GRIR <ArrowUpRight size={17}/></button></section>
@@ -435,7 +435,7 @@ export default function Page() {
 
       <div className="panel">
         <div className="panel-head"><h2><Layers3 size={20}/> GRIR by Category</h2><button className="mini-btn">Nilai (Rp) <ChevronDown size={14}/></button></div>
-        <div className="donut-wrap"><Donut data={category} total={category.reduce((a,x)=>a+x.value,0)}/><div className="donut-legend">{category.map((x,i)=><div key={x.name}><i className={`legend-dot d${i}`}/><span>{x.name}</span><b>{pct(x.value/(category.reduce((a,y)=>a+y.value,0)||1)*100)}</b></div>)}</div></div>
+        <div className="donut-wrap"><Donut data={category} total={category.reduce((a,x)=>a+x.value,0)}/><div className="donut-legend">{category.map((x,i)=><div key={x.name}><i className={'legend-dot d'+i}/><span>{x.name}</span><b>{pct(x.value/(category.reduce((a,y)=>a+y.value,0)||1)*100)}</b></div>)}</div></div>
       </div>
 
       <div className="panel">
@@ -459,7 +459,7 @@ export default function Page() {
         </div>
       </div>
       <div className="table-scroll"><table><thead><tr><th>No</th><th>Company</th><th>Vendor</th><th>No. Dokumen</th><th>Jatuh Tempo</th><th>Aging</th><th>Jumlah (LC)</th><th>Status</th><th>Kategori</th><th>Action</th></tr></thead>
-      <tbody>{filtered.slice(0,10).map((r,i)=><tr key={r.id||i}><td>{i+1}</td><td>{clean(r.company_code)}</td><td className="strong">{clean(r.vendor_name)||'—'}</td><td>{clean(r.document_number)||'—'}</td><td>{clean(r.due_status)||'—'}</td><td>{clean(r.age_group)||'—'}</td><td className="amount">{money(signedAmount(r))}</td><td><span className={`badge ${clean(r.status).toLowerCase()==='abnormal'?'bad':'ok'}`}>{clean(r.status)||'—'}</span></td><td>{clean(r.category)||'—'}</td><td>{clean(r.action)||clean(r.remark)||'—'}</td></tr>)}</tbody></table></div>
+      <tbody>{filtered.slice(0,10).map((r,i)=><tr key={r.id||i}><td>{i+1}</td><td>{clean(r.company_code)}</td><td className="strong">{clean(r.vendor_name)||'—'}</td><td>{clean(r.document_number)||'—'}</td><td>{clean(r.due_status)||'—'}</td><td>{clean(r.age_group)||'—'}</td><td className="amount">{money(signedAmount(r))}</td><td><span className={'badge '+(clean(r.status).toLowerCase()==='abnormal' ? 'bad' : 'ok')}>{clean(r.status)||'—'}</span></td><td>{clean(r.category)||'—'}</td><td>{clean(r.action)||clean(r.remark)||'—'}</td></tr>)}</tbody></table></div>
       {filtered.length>10 && <div className="table-foot">Menampilkan 10 transaksi pertama dari {integer(filtered.length)}. Klik Download untuk mengunduh seluruh data sesuai filter.</div>}
     </section>
 
